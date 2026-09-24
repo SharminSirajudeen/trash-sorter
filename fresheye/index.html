@@ -303,12 +303,16 @@ const apiKeyIn=$("apiKey"),apiBaseIn=$("apiBase"),apiModelIn=$("apiModel"),saveA
 /* ---------------- state ---------------- */
 let mobilenetModel=null,tmModel=null,stream=null,running=false,lastRun=0,facing="environment";
 let manualState=null;                 // 'fresh'|'spoiling'|'spoiled' when no model
+let modelSource="manual";             // 'manual' | 'builtin' | 'user'
 let shown={key:null,state:null};      // what's on screen now
 let candKey=null,candState=null,candCount=0;   // 2-frame smoothing
 let lastLabel="",lastProb=0;
 
 function setStatus(m,e){statusEl.textContent=m;statusEl.classList.toggle("err",!!e);}
-function setBadge(){badge.innerHTML="Freshness: <b>"+(tmModel?"your model":"manual")+"</b>";}
+function setBadge(){
+  const t = modelSource==="user" ? "your model" : modelSource==="builtin" ? "built-in demo model" : "manual";
+  badge.innerHTML="Freshness: <b>"+t+"</b>";
+}
 
 /* ---------------- model loading ---------------- */
 (async()=>{
@@ -317,7 +321,11 @@ function setBadge(){badge.innerHTML="Freshness: <b>"+(tmModel?"your model":"manu
     mobilenetModel=await mobilenet.load({version:2,alpha:1.0});
     setStatus("Ready. Turn on the camera, or tap a freshness to try it.");
     startBtn.disabled=false;
-    const savedModel=sGet(K.model); if(savedModel){modelUrlIn.value=savedModel;loadModel(savedModel,true);}
+    const savedModel=sGet(K.model);
+    // Her own model wins; otherwise fall back to the bundled demo model so the
+    // app judges freshness itself instead of asking the user.
+    if(savedModel){ modelUrlIn.value=savedModel; loadModel(savedModel,true,"user"); }
+    else { loadModel("model/",true,"builtin"); }
   }catch(e){
     setStatus("Couldn't load the recognition model — check the connection and reload. You can still use the manual freshness buttons.",true);
     startBtn.disabled=true;
@@ -325,22 +333,36 @@ function setBadge(){badge.innerHTML="Freshness: <b>"+(tmModel?"your model":"manu
 })();
 startBtn.disabled=true;
 
-async function loadModel(url,quiet){
-  if(!window.tmImage){setStatus("Custom-model support didn't load — check the connection and reload.",true);return;}
+async function loadModel(url,quiet,source){
+  source=source||"user";
+  if(!window.tmImage){ if(source==="user") setStatus("Custom-model support didn't load — check the connection and reload.",true); return; }
   let base=url.trim(); if(!base.endsWith("/")) base+="/";
   try{
     if(!quiet) setStatus("Loading your freshness model…");
     const m=await tmImage.load(base+"model.json",base+"metadata.json");
-    tmModel=m; sSet(K.model,url.trim()); setBadge(); lockManual(true);
-    setStatus("Your freshness model is active ("+m.getTotalClasses()+" classes). Turn on the camera to use it.");
+    tmModel=m; modelSource=source; setBadge(); lockManual(true);
+    if(source==="user"){
+      sSet(K.model,url.trim());
+      setStatus("Your freshness model is active ("+m.getTotalClasses()+" classes). Turn on the camera to use it.");
+    }else{
+      setStatus("Using the built-in demo freshness model. Train your own in Settings for better accuracy on your items.");
+    }
   }catch(e){
-    setStatus("Couldn't load that model. Check it's a Teachable Machine image model link ending in the model ID.",true);
+    // A failed built-in load is not an error the user caused — fall back quietly to manual.
+    if(source==="user") setStatus("Couldn't load that model. Check it's a Teachable Machine image model link ending in the model ID.",true);
+    else { modelSource="manual"; setBadge(); lockManual(false); }
   }
 }
 useModelBtn.addEventListener("click",()=>{ if(modelUrlIn.value.trim()) loadModel(modelUrlIn.value); });
-clearModelBtn.addEventListener("click",()=>{ tmModel=null; sDel(K.model); setBadge(); lockManual(false); setStatus("Back to manual freshness."); });
+clearModelBtn.addEventListener("click",()=>{ tmModel=null; modelSource="manual"; sDel(K.model); setBadge(); lockManual(false); setStatus("Back to manual freshness."); });
 
-function lockManual(locked){ manual.classList.toggle("locked",locked); manualNote.textContent=locked?"Freshness is coming from your model. Tap Manual in Settings to switch back.":""; }
+function lockManual(locked){
+  manual.classList.toggle("locked",locked);
+  manualNote.textContent = !locked ? ""
+    : modelSource==="builtin"
+      ? "Freshness is coming from the built-in demo model. Train your own in Settings, or tap Manual to judge it yourself."
+      : "Freshness is coming from your model. Tap Manual in Settings to switch back.";
+}
 
 /* ---------------- camera ---------------- */
 async function openCamera(){
