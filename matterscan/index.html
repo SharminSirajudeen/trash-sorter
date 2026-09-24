@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MatterScan — What's it made of, where does it go?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<style>
+  :root{
+    box-sizing:border-box;
+    /* industrial "urban mining" shell */
+    --bg:#0f1216; --surface:#171c22; --surface-2:#1f262e; --line:#2b333d;
+    --text:#eef2f6; --muted:#8b98a5; --accent:#22b8cf;
+    /* verdict tones */
+    --ewaste:#f0a92f; --hazard:#e5533c; --ok:#35b36a; --meh:#e6a12e; --no:#d3503a; --none:#5a6673;
+    --verdict:#5a6673;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:inherit}
+  html,body{margin:0;min-height:100%}
+  body{background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1060px;margin:0 auto;padding:20px 16px 40px}
+  a{color:var(--accent)}
+
+  header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .logo{font-family:Sora,sans-serif;font-weight:700;font-size:26px;letter-spacing:-0.01em;display:flex;align-items:center;gap:10px}
+  .logo .m{width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,var(--accent),var(--verdict));transition:background .5s ease}
+  .tag{color:var(--muted);font-size:14px}
+  .badge{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 11px;background:var(--surface)}
+  .badge b{color:var(--text);font-weight:600}
+
+  /* mode toggle */
+  .modes{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:16px}
+  .modes button{font-family:Sora,sans-serif;font-weight:600;font-size:14px;border:none;background:none;color:var(--muted);padding:9px 18px;border-radius:9px;cursor:pointer}
+  .modes button.on{background:var(--surface-2);color:var(--text)}
+
+  .stage{position:relative;display:grid;grid-template-columns:1.1fr 1fr;gap:16px;align-items:stretch}
+  .cam{position:relative;background:#080b0e;border:1px solid var(--line);border-radius:20px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+  video{width:100%;height:100%;object-fit:cover}
+  video.mirror{transform:scaleX(-1)}
+  .scan{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 3px var(--verdict);border-radius:20px;opacity:0;transition:opacity .5s,box-shadow .5s}
+  .cam.live .scan{opacity:.85}
+  .cam-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px}
+  .cam-empty p{color:#9fb0bd;max-width:34ch;margin:0;font-size:14px}
+  .busy{position:absolute;top:12px;left:12px;background:rgba(8,11,14,.82);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12.5px;color:var(--muted);display:none;align-items:center;gap:7px}
+  .cam.live .busy{display:inline-flex}
+  .busy i{width:7px;height:7px;border-radius:50%;background:var(--verdict);animation:pulse 1.1s infinite}
+  @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+  .flip{position:absolute;top:10px;right:10px;display:none;background:rgba(8,11,14,.82);border:1px solid var(--line);color:#fff;border-radius:999px;width:42px;height:42px;font-size:18px;padding:0;align-items:center;justify-content:center}
+  .cam.live .flip{display:inline-flex}
+
+  .result{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:22px;display:flex;flex-direction:column;transition:background .5s ease,border-color .5s ease;min-height:260px}
+  .result.filled{background:color-mix(in srgb,var(--verdict) 18%, var(--surface));border-color:var(--verdict)}
+  .idle{margin:auto 0;color:var(--muted)}
+  .idle .big{font-family:Sora,sans-serif;font-size:21px;color:var(--text);margin:0 0 6px;font-weight:600}
+  .r-kicker{font-size:13px;color:var(--muted);margin:0 0 3px;text-transform:capitalize}
+  .r-verdict{font-family:Sora,sans-serif;font-weight:700;font-size:34px;letter-spacing:-0.01em;color:color-mix(in srgb,var(--verdict) 82%, #fff);margin:0;line-height:1.06;transition:color .5s ease}
+  .r-sub{margin:7px 0 14px;font-size:15px;color:var(--text)}
+  .hazard{display:inline-flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--hazard) 22%,var(--surface));border:1px solid var(--hazard);color:#ffd9d1;border-radius:999px;padding:4px 11px;font-size:12.5px;font-weight:600;margin-bottom:12px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 14px}
+  .chip{background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-size:12.5px;color:var(--text)}
+  .chips-lbl,.route-lbl{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+  .route{background:color-mix(in srgb,var(--verdict) 12%,var(--surface));border:1px solid color-mix(in srgb,var(--verdict) 40%,var(--line));border-radius:12px;padding:12px 14px;margin-top:auto}
+  .route p{margin:0;font-size:14.5px}
+  .becomes{font-size:14.5px;margin:0 0 12px}
+  .becomes b{color:color-mix(in srgb,var(--verdict) 82%,#fff)}
+  .r-saw{font-size:12.5px;color:var(--muted);margin:12px 0 0}
+  .ai{display:inline-block;margin-top:10px;background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;text-decoration:underline;padding:4px 0}
+
+  /* plastics tap pad */
+  .pad{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:16px}
+  .pad button{font-family:Sora,sans-serif;border:1.5px solid var(--line);background:var(--surface);color:var(--text);border-radius:12px;padding:12px 4px;cursor:pointer;text-align:center;transition:border-color .2s,background .2s}
+  .pad button .num{font-size:20px;font-weight:700;line-height:1}
+  .pad button .ab{display:block;font-size:11px;color:var(--muted);margin-top:3px}
+  .pad button[data-r="ok"]{border-top:3px solid var(--ok)}
+  .pad button[data-r="meh"]{border-top:3px solid var(--meh)}
+  .pad button[data-r="no"]{border-top:3px solid var(--no)}
+  .pad button.on{background:var(--surface-2);border-color:var(--verdict)}
+  .pad-note{font-size:12px;color:var(--muted);margin:8px 0 0}
+
+  .controls{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+  .btn{font-family:Inter,sans-serif;font-size:15px;font-weight:600;border-radius:12px;padding:12px 20px;cursor:pointer;border:1.5px solid transparent}
+  .primary{background:var(--accent);color:#06222a}
+  .primary:hover{background:#3ccbe0}
+  .primary:disabled{opacity:.5;cursor:default}
+  .ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  .ghost:hover{border-color:var(--muted)}
+  .status{margin-top:12px;font-size:13.5px;color:var(--muted);min-height:20px}
+  .status.err{color:#f0a89c}
+
+  .impact{margin-top:24px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+  .impact h2{font-family:Sora,sans-serif;font-size:18px;margin:0 0 3px}
+  .impact .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+  .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .tile{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .tile .n{font-family:Sora,sans-serif;font-weight:700;font-size:26px;line-height:1}
+  .tile .l{font-size:12px;color:var(--muted);margin-top:5px}
+  .impact .foot{display:flex;justify-content:flex-end;margin-top:12px}
+  .link-btn{background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;text-decoration:underline;padding:4px}
+
+  details{margin-top:16px;border:1px solid var(--line);border-radius:14px;padding:2px 16px;background:var(--surface)}
+  summary{cursor:pointer;padding:13px 0;font-weight:600;font-size:14.5px}
+  details p{color:var(--muted);font-size:14px;margin:0 0 12px}
+  .field{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px}
+  .field input{flex:1;min-width:210px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:11px 13px;font-family:Inter,sans-serif;font-size:14px}
+  .field input:focus{outline:none;border-color:var(--accent)}
+  .adv{border-top:1px dashed var(--line);margin-top:6px;padding-top:12px}
+  .note{font-size:12px;color:var(--muted);margin:4px 0 0}
+  footer{margin-top:26px;color:var(--muted);font-size:12.5px}
+  .hidden{display:none !important}
+  :focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 60%,#000);outline-offset:2px}
+
+  @media(max-width:760px){
+    .wrap{padding:14px 12px 30px}
+    .stage{display:block}
+    .cam{aspect-ratio:3/4;max-height:56dvh;border-radius:22px}
+    .result{margin-top:14px}
+    .r-verdict{font-size:30px}
+    .pad{grid-template-columns:repeat(4,1fr)}
+  }
+  @media(prefers-reduced-motion:reduce){ *{transition:none !important;animation:none !important} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo"><span class="m" id="mMark"></span>MatterScan</div>
+    <div class="tag">What is this made of — and where does it go?</div>
+    <div class="badge" id="badge"></div>
+  </header>
+
+  <div class="modes" id="modes" role="tablist">
+    <button id="modeElec" class="on" role="tab" aria-selected="true">Electronics</button>
+    <button id="modePlas" role="tab" aria-selected="false">Plastics</button>
+  </div>
+
+  <div class="stage">
+    <div class="cam" id="cam">
+      <video id="video" playsinline muted></video>
+      <div class="scan"></div>
+      <div class="busy"><i></i> scanning</div>
+      <button class="flip" id="flipBtn" title="Switch camera" aria-label="Switch camera">⟲</button>
+      <div class="cam-empty" id="camEmpty">
+        <div style="font-size:44px">🔎</div>
+        <p id="camHint">Turn on the camera and hold up a device — phone, mouse, remote, headphones. Good light and a plain background help.</p>
+      </div>
+    </div>
+
+    <div class="result" id="result">
+      <div class="idle" id="idle">
+        <p class="big">Point, scan, sort.</p>
+        <p style="margin:0" id="idleSub">Turn on the camera to identify a device — or switch to Plastics and tap a code.</p>
+      </div>
+      <div id="verdict" class="hidden">
+        <p class="r-kicker" id="rKicker"></p>
+        <p class="r-verdict" id="rVerdict">—</p>
+        <div class="hazard hidden" id="rHazard"></div>
+        <p class="r-sub" id="rSub"></p>
+        <div id="rChipsWrap" class="hidden">
+          <p class="chips-lbl">Worth recovering</p>
+          <div class="chips" id="rChips"></div>
+        </div>
+        <p class="becomes hidden" id="rBecomes"></p>
+        <div class="route">
+          <p class="route-lbl" id="rRouteLbl">Where it goes</p>
+          <p id="rRoute"></p>
+          <button class="ai hidden" id="aiBtn">✨ Ask about this item (live)</button>
+        </div>
+        <p class="r-saw" id="rSaw"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- plastics tap pad -->
+  <div id="plasPad" class="hidden">
+    <div class="pad" id="pad"></div>
+    <p class="pad-note" id="padNote">Tap the number stamped on the item (inside the ♻ triangle, usually on the base). The stamp is tiny, so tapping is more reliable than the camera — train a code model in Settings to auto-detect it.</p>
+  </div>
+
+  <div class="controls">
+    <button class="btn primary" id="startBtn">Turn on camera</button>
+    <button class="btn ghost" id="stopBtn" style="display:none">Stop</button>
+    <button class="btn ghost" id="logBtn">Log this item</button>
+  </div>
+  <div class="status" id="status">Loading the recognition model…</div>
+
+  <div class="impact">
+    <h2>Booth impact</h2>
+    <p class="sub">Diverted = items correctly kept out of landfill (any e-waste, or a recyclable plastic).</p>
+    <div class="tiles">
+      <div class="tile"><div class="n" id="tScanned">0</div><div class="l">items scanned</div></div>
+      <div class="tile"><div class="n" id="tDiverted">0</div><div class="l">diverted from landfill</div></div>
+    </div>
+    <div class="foot"><button class="link-btn" id="resetImpact">Reset tally</button></div>
+  </div>
+
+  <details id="settings">
+    <summary>Settings &amp; training (optional)</summary>
+    <p><b>Electronics — your own device model.</b> Optional. Train a Teachable Machine image model on your devices and paste the link; when set it's used instead of MobileNet.</p>
+    <div class="field">
+      <input id="deviceUrl" type="url" placeholder="Teachable Machine device model URL">
+      <button class="btn primary" id="useDeviceBtn">Use</button>
+      <button class="btn ghost" id="clearDeviceBtn">MobileNet</button>
+    </div>
+    <p><b>Plastics — your own code model.</b> Optional. Train a model on the 7 resin symbols with classes named exactly <b>1</b>–<b>7</b>; when set and the camera is on, the matching code is auto-highlighted.</p>
+    <div class="field">
+      <input id="plasUrl" type="url" placeholder="Teachable Machine resin-code model URL">
+      <button class="btn primary" id="usePlasBtn">Use</button>
+      <button class="btn ghost" id="clearPlasBtn">Tap only</button>
+    </div>
+    <div class="adv">
+      <p><b>Live answers (advanced, off by default).</b> Optional. Paste an OpenAI-compatible API key to enable an "Ask about this item" button for open-ended disposal/upcycling advice on the detected item. Everything works without it — the demo never depends on it. Your key is stored only in this browser and sent only to the endpoint you set; it is never logged.</p>
+      <div class="field"><input id="apiKey" type="password" placeholder="API key (optional)" autocomplete="off"></div>
+      <div class="field">
+        <input id="apiBase" type="url" placeholder="Endpoint (default https://api.openai.com/v1/chat/completions)">
+        <input id="apiModel" type="text" placeholder="Model (default gpt-4o-mini)">
+      </div>
+      <div class="field"><button class="btn ghost" id="saveApi">Save key</button><button class="btn ghost" id="clearApi">Remove key</button></div>
+      <p class="note" id="apiNote"></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>How it works (for the Q&amp;A)</summary>
+    <p><b>Electronics</b> use computer vision: MobileNet, a neural network trained on millions of photos, recognises the device on your screen; a rule flags anything electronic as e-waste and shows baked guidance for it. <b>Plastics</b> are tap-first on purpose: the resin stamp is only 2–3 mm, so reading it from a webcam is unreliable — tapping the number gives accurate, trustworthy data every time. Both run on your device; nothing is uploaded.</p>
+    <p>The optional custom models use <b>transfer learning</b>: they reuse MobileNet's general image knowledge and only re-learn your specific classes, so ~30–50 photos per class is enough.</p>
+  </details>
+
+  <footer>Runs offline once loaded • EDGE — Employability Development &amp; Growth through Education • Level Expo, 3–4 Dec 2026</footer>
+</div>
+
+<script>
+"use strict";
+
+/* ================= baked knowledge (AI-authored, frozen in) ================= */
+/* Electronics: MobileNet label -> device key (specific guidance). */
+const DEVICE = {
+  phone:{name:"Phone",high:true,haz:"Lithium battery — fire risk if bent or crushed. Wipe your data first.",mats:["Lithium battery","Gold & copper board","Rare-earth metals","Glass"],route:"E-waste point or retailer take-back. Never the household bin."},
+  laptop:{name:"Laptop / computer",high:true,haz:"Lithium battery and personal data. Back up and wipe before recycling.",mats:["Lithium battery","Circuit board (gold/copper)","Aluminium","Screen"],route:"E-waste collection or manufacturer take-back."},
+  monitor:{name:"Monitor / TV",high:false,haz:"Display panels can contain hazardous components — don't smash.",mats:["Circuit board","Copper","Panel glass","Metals"],route:"E-waste point that accepts displays."},
+  keyboard:{name:"Keyboard",high:false,haz:"Electronics and cabling — not household recycling.",mats:["Circuit board","Copper","Plastics"],route:"E-waste collection point."},
+  mouse:{name:"Mouse",high:false,haz:"Small electronics — wireless ones hold a battery.",mats:["Circuit board","Copper","Plastics"],route:"E-waste bin at a collection point."},
+  remote:{name:"Remote control",high:false,haz:"Remove the batteries — they leak and can't go in the bin.",mats:["Batteries","Circuit board","Plastics"],route:"Batteries to battery recycling; body to e-waste."},
+  headphones:{name:"Headphones / earphones",high:true,haz:"Wireless ones contain a small lithium battery — never crush.",mats:["Battery (if wireless)","Copper wiring","Magnets","Plastics"],route:"E-waste point; remove the battery if you can."},
+  camera:{name:"Camera",high:true,haz:"Battery and electronics. Remove the battery and memory card.",mats:["Battery","Circuit board","Lens glass","Metals"],route:"E-waste point; wipe the memory card first."},
+  printer:{name:"Printer",high:false,haz:"Ink/toner plus electronics.",mats:["Circuit board","Metals","Plastics"],route:"E-waste or retailer take-back; recycle cartridges separately."},
+  speaker:{name:"Speaker",high:false,haz:"Magnets and electronics; may contain a battery.",mats:["Magnets","Copper","Circuit board"],route:"E-waste collection point."},
+};
+const DEVICE_MATCH = [
+  ["phone",["cellular","cellphone","cell phone","telephone","smartphone","ipod","hand-held"]],
+  ["laptop",["laptop","notebook","computer"]],
+  ["monitor",["monitor","screen","television","crt","lcd"]],
+  ["keyboard",["keyboard","space bar","typewriter"]],
+  ["mouse",["mouse"]],
+  ["remote",["remote control","remote"]],
+  ["headphones",["headphone","earphone","earbud"]],
+  ["camera",["camera","lens","reflex","polaroid"]],
+  ["printer",["printer"]],
+  ["speaker",["loudspeaker","speaker","subwoofer"]],
+];
+/* other labels that are electronic but have no specific card -> generic e-waste */
+const ELECTRONIC_HINTS = ["radio","modem","router","switch","joystick","microphone","hard disc","hard disk","cassette","projector","clock","player","console","charger","adapter","calculator","scanner","fan","drill","game"];
+const GENERIC_EWASTE = {name:"Electronic item",high:false,haz:"Contains electronics — may hold a battery and recoverable metals.",mats:["Circuit board","Copper","Plastics"],route:"Take to an e-waste collection point; never the household bin."};
+
+/* Plastics: resin code 1-7 */
+const PLASTIC = {
+  "1":{ab:"PET",r:"ok",status:"Widely recycled",ex:"Water & soft-drink bottles, food trays",becomes:"New bottles, polyester fibre, fleece",tip:"Empty and rinse; leave the cap on (varies locally)."},
+  "2":{ab:"HDPE",r:"ok",status:"Widely recycled",ex:"Milk jugs, detergent & shampoo bottles",becomes:"Pipes, bins, plastic lumber, new bottles",tip:"Rinse; one of the most accepted plastics."},
+  "3":{ab:"PVC",r:"no",status:"Rarely recycled",ex:"Pipes, cling film, blister packs",becomes:"Occasionally piping or flooring",tip:"Usually general waste; never burn it."},
+  "4":{ab:"LDPE",r:"meh",status:"Sometimes recycled",ex:"Carrier & bread bags, squeezable bottles, film",becomes:"Bin liners, bags, plastic lumber",tip:"Soft plastic — take bags to store film-recycling, not the kerb."},
+  "5":{ab:"PP",r:"meh",status:"Sometimes recycled",ex:"Yoghurt pots, tubs, bottle caps, straws",becomes:"Brushes, crates, garden furniture, trays",tip:"Increasingly accepted; empty and rinse."},
+  "6":{ab:"PS",r:"no",status:"Rarely recycled",ex:"Foam cups, takeaway boxes, packing foam, cutlery",becomes:"Sometimes insulation; mostly not recycled",tip:"Usually general waste; check for a local foam drop-off."},
+  "7":{ab:"Other",r:"no",status:"Rarely recycled",ex:"Mixed/multilayer plastics, some bioplastics",becomes:"Rarely recycled; PLA needs industrial composting",tip:"Usually general waste unless a local scheme exists."},
+};
+const RCOLOUR = {ok:"var(--ok)",meh:"var(--meh)",no:"var(--no)"};
+const RVALUE  = {ok:"#35b36a",meh:"#e6a12e",no:"#d3503a"};
+
+/* ================= storage (never throws) ================= */
+const K={device:"matterscan_device",plas:"matterscan_plas",key:"matterscan_key",base:"matterscan_base",llm:"matterscan_llm",impact:"matterscan_impact"};
+function sGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function sSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+function sDel(k){try{localStorage.removeItem(k);}catch(e){}}
+
+/* ================= refs ================= */
+const $=id=>document.getElementById(id);
+const root=document.documentElement;
+const video=$("video"),cam=$("cam"),camHint=$("camHint");
+const statusEl=$("status"),startBtn=$("startBtn"),stopBtn=$("stopBtn"),flipBtn=$("flipBtn");
+const idle=$("idle"),idleSub=$("idleSub"),verdictEl=$("verdict"),result=$("result"),badge=$("badge");
+const rKicker=$("rKicker"),rVerdict=$("rVerdict"),rHazard=$("rHazard"),rSub=$("rSub");
+const rChipsWrap=$("rChipsWrap"),rChips=$("rChips"),rBecomes=$("rBecomes"),rRoute=$("rRoute"),rRouteLbl=$("rRouteLbl"),rSaw=$("rSaw"),aiBtn=$("aiBtn");
+const plasPad=$("plasPad"),pad=$("pad");
+const modeElec=$("modeElec"),modePlas=$("modePlas");
+const logBtn=$("logBtn");
+const deviceUrlIn=$("deviceUrl"),useDeviceBtn=$("useDeviceBtn"),clearDeviceBtn=$("clearDeviceBtn");
+const plasUrlIn=$("plasUrl"),usePlasBtn=$("usePlasBtn"),clearPlasBtn=$("clearPlasBtn");
+const apiKeyIn=$("apiKey"),apiBaseIn=$("apiBase"),apiModelIn=$("apiModel"),saveApi=$("saveApi"),clearApi=$("clearApi"),apiNote=$("apiNote");
+
+/* ================= state ================= */
+let mobilenetModel=null,deviceTM=null,plasTM=null,stream=null,running=false,lastRun=0,facing="environment";
+let mode="electronics";
+let elec={key:null,electronic:false,label:"",prob:0};     // shown electronics reading
+let plasCode=null;                                         // shown plastics code "1".."7"
+let candA=null,candCount=0;                                // 2-frame smoothing (both modes)
+
+function setStatus(m,e){statusEl.textContent=m;statusEl.classList.toggle("err",!!e);}
+function setBadge(){
+  badge.innerHTML = mode==="electronics"
+    ? "Devices: <b>"+(deviceTM?"your model":"MobileNet")+"</b>"
+    : "Plastics: <b>"+(plasTM?"your code model":"tap")+"</b>";
+}
+function paint(c){root.style.setProperty("--verdict",c);}
+
+/* ================= model loading ================= */
+(async()=>{
+  try{
+    if(!window.mobilenet) throw new Error("blocked");
+    mobilenetModel=await mobilenet.load({version:2,alpha:1.0});
+    setStatus("Ready. Turn on the camera (Electronics), or switch to Plastics and tap a code.");
+    startBtn.disabled=false;
+    const d=sGet(K.device); if(d){deviceUrlIn.value=d;loadTM(d,"device",true);}
+    const p=sGet(K.plas); if(p){plasUrlIn.value=p;loadTM(p,"plas",true);}
+  }catch(e){
+    setStatus("Couldn't load the recognition model — check the connection and reload. Plastics mode still works fully by tapping.",true);
+    startBtn.disabled=true;
+  }
+})();
+startBtn.disabled=true;
+
+async function loadTM(url,which,quiet){
+  if(!window.tmImage){setStatus("Custom-model support didn't load — check the connection and reload.",true);return;}
+  let base=url.trim(); if(!base.endsWith("/")) base+="/";
+  try{
+    if(!quiet) setStatus("Loading your model…");
+    const m=await tmImage.load(base+"model.json",base+"metadata.json");
+    if(which==="device"){deviceTM=m;sSet(K.device,url.trim());} else {plasTM=m;sSet(K.plas,url.trim());}
+    setBadge(); setStatus("Model loaded ("+m.getTotalClasses()+" classes).");
+  }catch(e){ setStatus("Couldn't load that model. Check it's a Teachable Machine image-model link.",true); }
+}
+useDeviceBtn.addEventListener("click",()=>{ if(deviceUrlIn.value.trim()) loadTM(deviceUrlIn.value,"device"); });
+clearDeviceBtn.addEventListener("click",()=>{ deviceTM=null;sDel(K.device);setBadge();setStatus("Using MobileNet for devices."); });
+usePlasBtn.addEventListener("click",()=>{ if(plasUrlIn.value.trim()) loadTM(plasUrlIn.value,"plas"); });
+clearPlasBtn.addEventListener("click",()=>{ plasTM=null;sDel(K.plas);setBadge();setStatus("Plastics: tap only."); });
+
+/* ================= camera ================= */
+async function openCamera(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing}});
+  video.srcObject=stream; await video.play();
+  const real=(stream.getVideoTracks()[0].getSettings().facingMode)||facing;
+  video.classList.toggle("mirror", real!=="environment"); // mirror only a front camera
+}
+async function start(){
+  try{
+    await openCamera();
+    cam.classList.add("live"); running=true;
+    startBtn.style.display="none"; stopBtn.style.display="inline-block";
+    revealVerdict();
+    setStatus(mode==="electronics"?"Scanning. Hold a device steady in the frame.":"Scanning for a resin code. You can also just tap the number.");
+    loop();
+  }catch(e){ setStatus("Camera access was blocked. Allow the camera in your browser, then try again.",true); }
+}
+function stop(){
+  running=false;
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  cam.classList.remove("live");
+  startBtn.style.display="inline-block"; stopBtn.style.display="none";
+  setStatus("Stopped.");
+}
+async function flip(){
+  facing = facing==="environment" ? "user" : "environment";
+  try{ await openCamera(); }catch(e){ setStatus("Couldn't switch camera on this device.",true); }
+}
+function revealVerdict(){ idle.classList.add("hidden"); verdictEl.classList.remove("hidden"); }
+
+/* ================= recognition loop ================= */
+async function loop(){
+  if(!running) return;
+  const now=performance.now();
+  if(now-lastRun>600 && video.readyState>=2){
+    lastRun=now;
+    try{
+      if(mode==="electronics") await scanElectronics();
+      else if(plasTM) await scanPlastic();
+    }catch(e){}
+  }
+  requestAnimationFrame(loop);
+}
+async function scanElectronics(){
+  let label="",prob=0,key=null;
+  if(deviceTM){ const p=await deviceTM.predict(video); p.sort((a,b)=>b.probability-a.probability); label=p[0].className; prob=p[0].probability; key=matchDeviceExact(label); }
+  else if(mobilenetModel){ const p=await mobilenetModel.classify(video,3); label=p[0].className.split(",")[0]; prob=p[0].probability; key=matchDevice(p[0].className); }
+  const electronic = key!==null || isElectronic(label);
+  commitElec(key,electronic,label,prob);
+}
+async function scanPlastic(){
+  const p=await plasTM.predict(video); p.sort((a,b)=>b.probability-a.probability);
+  const code=(p[0].className.match(/[1-7]/)||[])[0];
+  if(code) commitCode(code,true);
+}
+function matchDevice(cn){ const l=cn.toLowerCase(); for(const [k,syn] of DEVICE_MATCH){ if(syn.some(s=>l.includes(s))) return k; } return null; }
+function matchDeviceExact(cn){ const l=cn.trim().toLowerCase(); if(DEVICE[l]) return l; return matchDevice(cn); }
+function isElectronic(label){ const l=label.toLowerCase(); return ELECTRONIC_HINTS.some(h=>l.includes(h)); }
+
+/* two-frame smoothing before a shown value changes */
+function commitElec(key,electronic,label,prob){
+  elec.label=label; elec.prob=prob;
+  const sig=(key||"?")+"|"+electronic;
+  const cur=(elec.key||"?")+"|"+elec.electronic;
+  if(sig!==cur){
+    if(sig===candA){ candCount++; } else { candA=sig; candCount=1; }
+    if(candCount>=2){ elec.key=key; elec.electronic=electronic; candA=null; candCount=0; }
+  } else { candA=null; candCount=0; }
+  renderElec();
+}
+function commitCode(code,auto){
+  if(auto){
+    if(code!==plasCode){ if(code===candA){candCount++;}else{candA=code;candCount=1;} if(candCount>=2){plasCode=code;candA=null;candCount=0;} }
+    else { candA=null; candCount=0; }
+  } else { plasCode=code; candA=null; candCount=0; }
+  markPad(); renderPlas();
+}
+
+/* ================= rendering ================= */
+function renderElec(){
+  if(!elec.electronic && !elec.key && !elec.label){ // nothing yet
+    paint("var(--none)"); result.classList.remove("filled");
+    rKicker.textContent=""; rVerdict.textContent="Looking…"; rSub.textContent="Hold a device in the frame.";
+    hide(rHazard,rChipsWrap,rBecomes); rRoute.textContent=""; rSaw.textContent=""; aiBtn.classList.add("hidden");
+    return;
+  }
+  rBecomes.classList.add("hidden");
+  if(!elec.electronic){
+    paint("var(--none)"); result.classList.remove("filled");
+    rKicker.textContent = elec.label||"item";
+    rVerdict.textContent="Not electronic";
+    rSub.textContent="This doesn't look like e-waste. Switch to Plastics mode, or use a general-waste sorter.";
+    hide(rHazard,rChipsWrap); rRouteLbl.textContent="Suggestion"; rRoute.textContent="Try Plastics mode for packaging, or a general recycling guide.";
+    rSaw.textContent = elec.label ? "Recognised as "+elec.label+" ("+Math.round(elec.prob*100)+"%)" : "";
+    aiBtn.classList.toggle("hidden", !sGet(K.key));
+    return;
+  }
+  const d = (elec.key && DEVICE[elec.key]) || GENERIC_EWASTE;
+  paint(d.high?"var(--hazard)":"var(--ewaste)"); result.classList.add("filled");
+  rKicker.textContent=d.name;
+  rVerdict.textContent="E-WASTE";
+  rHazard.classList.remove("hidden"); rHazard.textContent="⚠ "+d.haz;
+  rSub.textContent="Electronics don't belong in the household bin — the materials are recoverable and some are hazardous.";
+  rChipsWrap.classList.remove("hidden"); rChips.innerHTML=""; d.mats.forEach(m=>{const s=document.createElement("span");s.className="chip";s.textContent=m;rChips.appendChild(s);});
+  rRouteLbl.textContent="Where it goes"; rRoute.textContent=d.route;
+  rSaw.textContent = elec.label ? "Recognised as "+elec.label+" ("+Math.round(elec.prob*100)+"%)" : "";
+  aiBtn.classList.toggle("hidden", !sGet(K.key));
+}
+function renderPlas(){
+  if(!plasCode){
+    paint("var(--none)"); result.classList.remove("filled");
+    rKicker.textContent="Plastics"; rVerdict.textContent="Tap a code"; rSub.textContent="Find the number in the ♻ triangle and tap it below.";
+    hide(rHazard,rChipsWrap,rBecomes); rRoute.textContent=""; rSaw.textContent=""; aiBtn.classList.add("hidden");
+    return;
+  }
+  const p=PLASTIC[plasCode];
+  paint(RCOLOUR[p.r]); result.classList.add("filled");
+  rHazard.classList.add("hidden"); rChipsWrap.classList.add("hidden");
+  rKicker.textContent="Resin code "+plasCode;
+  rVerdict.textContent=p.ab+" — "+p.status;
+  rSub.textContent="Common in: "+p.ex+".";
+  rBecomes.classList.remove("hidden"); rBecomes.innerHTML="Recycled it becomes → <b>"+p.becomes+"</b>";
+  rRouteLbl.textContent="Handling"; rRoute.textContent=p.tip;
+  rSaw.textContent="Local rules vary — this is the general picture.";
+  aiBtn.classList.toggle("hidden", !sGet(K.key));
+}
+function hide(...els){ els.forEach(e=>e.classList.add("hidden")); }
+
+/* ================= plastics tap pad ================= */
+Object.keys(PLASTIC).forEach(code=>{
+  const p=PLASTIC[code];
+  const b=document.createElement("button");
+  b.dataset.code=code; b.dataset.r=p.r;
+  b.innerHTML='<span class="num">'+code+'</span><span class="ab">'+p.ab+'</span>';
+  b.addEventListener("click",()=>{ revealVerdict(); commitCode(code,false); });
+  pad.appendChild(b);
+});
+function markPad(){ [...pad.children].forEach(b=>b.classList.toggle("on",b.dataset.code===plasCode)); }
+
+/* ================= mode toggle ================= */
+function setMode(m){
+  mode=m; candA=null; candCount=0;
+  const elecOn = m==="electronics";
+  modeElec.classList.toggle("on",elecOn); modePlas.classList.toggle("on",!elecOn);
+  modeElec.setAttribute("aria-selected",elecOn); modePlas.setAttribute("aria-selected",!elecOn);
+  plasPad.classList.toggle("hidden",elecOn);
+  camHint.textContent = elecOn
+    ? "Turn on the camera and hold up a device — phone, mouse, remote, headphones."
+    : "Optional: turn on the camera with a trained code model to auto-detect the symbol. Otherwise just tap the code below.";
+  idleSub.textContent = elecOn
+    ? "Turn on the camera to identify a device."
+    : "Tap the resin code below — no camera needed.";
+  setBadge();
+  // reset the shown verdict for the new mode
+  idle.classList.remove("hidden"); verdictEl.classList.add("hidden");
+  if(!elecOn){ plasCode=null; markPad(); }
+  else { elec={key:null,electronic:false,label:"",prob:0}; }
+}
+modeElec.addEventListener("click",()=>setMode("electronics"));
+modePlas.addEventListener("click",()=>setMode("plastics"));
+
+/* ================= impact tally ================= */
+function readImpact(){ try{return JSON.parse(sGet(K.impact))||{scanned:0,diverted:0};}catch(e){return {scanned:0,diverted:0};} }
+function renderImpact(){ const i=readImpact(); $("tScanned").textContent=i.scanned; $("tDiverted").textContent=i.diverted; }
+logBtn.addEventListener("click",()=>{
+  let diverted=false, ok=false;
+  if(mode==="electronics"){ if(elec.electronic){ok=true;diverted=true;} else if(elec.label){ok=true;} }
+  else { if(plasCode){ ok=true; diverted = PLASTIC[plasCode].r!=="no"; } }
+  if(!ok){ setStatus("Scan or tap an item before logging.",false); return; }
+  const i=readImpact(); i.scanned++; if(diverted) i.diverted++;
+  sSet(K.impact,JSON.stringify(i)); renderImpact();
+  setStatus("Logged. "+i.scanned+" scanned, "+i.diverted+" diverted.");
+});
+$("resetImpact").addEventListener("click",()=>{ sSet(K.impact,JSON.stringify({scanned:0,diverted:0})); renderImpact(); });
+
+/* ================= optional live answer (LLM) ================= */
+// Constrained system prompt keeps the app on-task; it can't be used as a general chatbot.
+const AI_SYSTEM="You are MatterScan, a materials-and-recycling assistant. You are given one item and its category (e-waste device, or a plastic resin code). Reply in under 50 words with practical disposal or upcycling advice for that exact item. Only ever discuss recycling, safe disposal, or reuse of this item. If asked anything else, reply exactly: I can only help with recycling and disposal.";
+function itemContext(){
+  if(mode==="electronics"){ const d=(elec.key&&DEVICE[elec.key])||GENERIC_EWASTE; return elec.electronic ? d.name+" (e-waste)" : (elec.label||"item"); }
+  if(plasCode){ const p=PLASTIC[plasCode]; return "Plastic resin code "+plasCode+" ("+p.ab+")"; }
+  return null;
+}
+function refreshAi(){ aiBtn.classList.toggle("hidden", !sGet(K.key)); }
+saveApi.addEventListener("click",()=>{
+  const k=apiKeyIn.value.trim();
+  if(k) sSet(K.key,k); else sDel(K.key);
+  if(apiBaseIn.value.trim()) sSet(K.base,apiBaseIn.value.trim()); else sDel(K.base);
+  if(apiModelIn.value.trim()) sSet(K.llm,apiModelIn.value.trim()); else sDel(K.llm);
+  apiNote.textContent=k?"Saved in this browser only.":"Key removed."; refreshAi();
+});
+clearApi.addEventListener("click",()=>{ sDel(K.key);sDel(K.base);sDel(K.llm); apiKeyIn.value="";apiBaseIn.value="";apiModelIn.value=""; apiNote.textContent="Key removed."; refreshAi(); });
+aiBtn.addEventListener("click",async()=>{
+  const key=sGet(K.key), item=itemContext(); if(!key||!item) return;
+  const base=sGet(K.base)||"https://api.openai.com/v1/chat/completions";
+  const model=sGet(K.llm)||"gpt-4o-mini";
+  const prev=rRoute.textContent; aiBtn.disabled=true; rRoute.textContent="Thinking…";
+  const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),10000);
+  try{
+    const res=await fetch(base,{method:"POST",signal:ctrl.signal,
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
+      body:JSON.stringify({model,max_tokens:150,temperature:0.6,messages:[
+        {role:"system",content:AI_SYSTEM},{role:"user",content:"Item: "+item+"."}]})});
+    if(!res.ok) throw new Error("http "+res.status);
+    const data=await res.json();
+    const txt=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content||"").trim();
+    rRoute.textContent = txt || prev;
+  }catch(e){ rRoute.textContent=prev; setStatus("Couldn't fetch a live answer — showing the built-in guidance instead.",false); }
+  finally{ clearTimeout(timer); aiBtn.disabled=false; }
+});
+
+/* ================= wire up + init ================= */
+startBtn.addEventListener("click",start);
+stopBtn.addEventListener("click",stop);
+flipBtn.addEventListener("click",flip);
+
+apiKeyIn.value=sGet(K.key)||""; apiBaseIn.value=sGet(K.base)||""; apiModelIn.value=sGet(K.llm)||"";
+setMode("electronics"); refreshAi(); renderImpact();
+</script>
+</body>
+</html>
