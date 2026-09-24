@@ -5,41 +5,54 @@ asking the user. It is a **pre-built baseline**, not part of the graded work: it
 trained by Claude Code on a public dataset, not by the student.
 
 **For the project marks, train your own model** (see `../README.md`). Yours is the
-defensible one — your items, your lighting, and an answer you can give honestly when
-an examiner asks "did you train this?". A model you load in Settings always
-overrides this one, and the badge at the top says which is active:
+defensible one — your items, your lighting, and an honest answer when an examiner
+asks "did you train this?". A model you load in Settings always overrides this one,
+and the badge at the top says which is active:
 
 - `Freshness: your model` — your trained model (what you want on demo day)
 - `Freshness: built-in demo model` — this file
 - `Freshness: manual` — no model; you tap the buttons
 
-## What it is
+## What it covers
 
-- **Classes:** `fresh`, `spoiled` — **binary**. There is no `spoiling` class, because
-  the source dataset has no "partly gone" category. The app's **"Use soon"** state is
-  therefore only reachable by tapping it manually, or by training your own 3-class
-  model with `fresh` / `spoiling` / `spoiled`.
-- **Fruits:** apples, bananas and oranges **only**. It will be unreliable on anything
-  else — a tomato or a bag of spinach is outside what it has ever seen.
-- **Accuracy:** 96.9% on a held-out split during training, and 97.5% (39/40) when
-  re-checked by actually loading it in the Teachable Machine loader in a browser.
-  Real-world accuracy on your own fruit, lighting and background will be lower.
+Nine fruits **and vegetables**, each in fresh and rotten form:
+
+🍎 apple · 🍌 banana · 🍊 orange · 🥒 cucumber · 🍅 tomato · 🥔 potato ·
+🫑 capsicum · 🌿 okra · 🥬 bitter gourd
+
+Trained on 5,400 images — **300 from every one of the 18 folders**, so each item
+carries equal weight and no single fruit dominates.
+
+## Honest limits
+
+- **Binary: `fresh` or `spoiled`.** There is no `spoiling` class, because the source
+  data has no "partly gone" category. The app's amber **"Use soon"** state is
+  therefore only reachable by tapping it, or by training your own 3-class model with
+  `fresh` / `spoiling` / `spoiled`.
+- **Only those nine items.** No leafy greens, no berries, no bread. Anything outside
+  the list still gets forced into fresh-or-spoiled — a binary classifier has nowhere
+  else to put it — so it can be confidently wrong on an unseen item.
+- **Accuracy:** 97.4% on a held-out split (fresh 97.5%, spoiled 97.3%). A 60-image
+  re-check through the actual Teachable Machine loader in a browser scored 60/60,
+  but that sample is small — trust the 97.4%. Real-world accuracy on your own
+  produce, lighting and background will be lower.
 - **Architecture:** MobileNetV2 feature extractor (frozen, ImageNet weights) + a small
-  trained head — i.e. transfer learning, the same technique Teachable Machine uses.
+  trained head — transfer learning, the same technique Teachable Machine uses.
   Exported in Teachable Machine format so the app loads it with no special code.
 
 ## Reproducing it
 
-Dataset (~3.7 GB, not committed — far too large for a Git repo):
+Dataset (~3 GB, not committed — far too large for a Git repo):
 
 ```bash
-git clone --depth 1 https://github.com/Bangkit-JKT2-D/fruits-fresh-rotten-classification
+curl -L -o freshness_fruit.zip \
+  https://huggingface.co/datasets/Densu341/Fresh-rotten-fruit/resolve/main/freshness_fruit.zip
+unzip freshness_fruit.zip          # -> dataset/Train/{fresh,rotten}<item>/
 ```
 
-Originally from Kaggle: *"Fruits fresh and rotten for classification"* by **sriramr** —
-https://www.kaggle.com/datasets/sriramr/fruits-fresh-and-rotten-for-classification
-(13,599 images: apple / banana / orange, each fresh and rotten).
+Public Hugging Face mirror, no login required. `train_fresh.py` next to this file is
+the exact script used: it samples 300 images per folder, extracts MobileNetV2
+embeddings, trains a small head, and exports in Teachable Machine format.
 
-The training script used to produce this model is in `train_fresh.py` next to this
-file. It samples 1,200 images per class, extracts MobileNetV2 embeddings, trains a
-small head, and exports in Teachable Machine format.
+A smaller 3-fruit alternative (apple/banana/orange only) is at
+https://github.com/Bangkit-JKT2-D/fruits-fresh-rotten-classification
