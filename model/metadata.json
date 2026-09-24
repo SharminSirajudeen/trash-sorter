@@ -1,0 +1,17 @@
+{
+  "tfjsVersion": "2.19.0",
+  "tmVersion": "2.4.7",
+  "packageVersion": "0.8.5",
+  "packageName": "@teachablemachine/image",
+  "timeStamp": "2026-09-24T05:36:55.279433Z",
+  "userMetadata": {},
+  "modelName": "sortright-trashnet-baseline",
+  "labels": [
+    "plastic",
+    "paper",
+    "metal",
+    "glass",
+    "trash"
+  ],
+  "imageSize": 224
+}
