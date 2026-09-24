@@ -25,10 +25,19 @@ carries equal weight and no single fruit dominates.
 
 ## Honest limits
 
-- **Binary: `fresh` or `spoiled`.** There is no `spoiling` class, because the source
-  data has no "partly gone" category. The app's amber **"Use soon"** state is
-  therefore only reachable by tapping it, or by training your own 3-class model with
-  `fresh` / `spoiling` / `spoiled`.
+- **The model itself is binary: `fresh` or `spoiled`** — the source data has no
+  "partly gone" category. The app still produces the amber **"Use soon"** state by
+  reading the model's *uncertainty* rather than a trained class: the model outputs a
+  probability, and when that probability sits near the decision boundary (30–70%
+  spoiled) the item is between states, so FreshEye shows "Use soon" and displays
+  `borderline — model is torn (NN% spoiled)`. Outside that band it commits to fresh
+  or spoiled.
+  This is a **deliberate heuristic, not a trained class** — say so if asked. It is a
+  good Q&A point: it shows the model returns probabilities, not certainties, and that
+  a threshold turns those into decisions. A model trained with its own `spoiling`
+  class is detected automatically and used directly, skipping the band entirely.
+  The thresholds are `SPOILING_LO` / `SPOILING_HI` in `index.html` if you want to
+  widen or narrow the amber zone.
 - **Only those nine items.** No leafy greens, no berries, no bread. Anything outside
   the list still gets forced into fresh-or-spoiled — a binary classifier has nowhere
   else to put it — so it can be confidently wrong on an unseen item.

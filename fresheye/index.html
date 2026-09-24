@@ -284,6 +284,23 @@ function normFreshness(cn){
   return "spoiling"; // safe middle if an unexpected class name appears
 }
 
+/* A two-class model (fresh/spoiled) has no "spoiling" class, but it still tells us
+   when an item is in between: its probability sits near the decision boundary
+   instead of at either end. We read the amber "Use soon" state from that, so a
+   binary model still gives all three answers. A model that has its own spoiling
+   class skips this and is used directly. */
+const SPOILING_LO=0.30, SPOILING_HI=0.70;
+let modelHasSpoiling=false, lastFreshProb=0;
+function freshnessFrom(preds){
+  if(modelHasSpoiling) return normFreshness(preds[0].className);   // trust a real 3-class model
+  let pSpoiled=0;
+  preds.forEach(p=>{ if(normFreshness(p.className)==="spoiled") pSpoiled+=p.probability; });
+  lastFreshProb=pSpoiled;
+  if(pSpoiled<SPOILING_LO) return "fresh";
+  if(pSpoiled>SPOILING_HI) return "spoiled";
+  return "spoiling";
+}
+
 /* ---------------- storage helpers (never throw) ---------------- */
 const K={model:"fresheye_model",key:"fresheye_apikey",base:"fresheye_apibase",model_llm:"fresheye_apimodel",impact:"fresheye_impact"};
 function sGet(k){ try{return localStorage.getItem(k);}catch(e){return null;} }
@@ -341,6 +358,8 @@ async function loadModel(url,quiet,source){
     if(!quiet) setStatus("Loading your freshness model…");
     const m=await tmImage.load(base+"model.json",base+"metadata.json");
     tmModel=m; modelSource=source; setBadge(); lockManual(true);
+    // Does this model name its own in-between class? If so, use it directly.
+    modelHasSpoiling=(m.getClassLabels()||[]).some(l=>/spoil(ing)?\b|soon|over-?ripe|semi|partial/i.test(l)&&!/spoiled/i.test(l));
     if(source==="user"){
       sSet(K.model,url.trim());
       setStatus("Your freshness model is active ("+m.getTotalClasses()+" classes). Turn on the camera to use it.");
@@ -408,7 +427,7 @@ async function loop(){
         lastLabel=label; lastProb=prob;
       }
       let state=manualState;
-      if(tmModel){ const fp=await tmModel.predict(video); fp.sort((a,b)=>b.probability-a.probability); state=normFreshness(fp[0].className); }
+      if(tmModel){ const fp=await tmModel.predict(video); fp.sort((a,b)=>b.probability-a.probability); state=freshnessFrom(fp); }
       commit(key,state,label,prob);
     }catch(e){}
   }
@@ -447,7 +466,15 @@ function render(label,prob){
   rProduce.textContent=produceName(shown.key,label);
   rVerdict.textContent=v.label; rBand.textContent=v.band;
   rIdea.textContent=t.idea; rStore.textContent=t.store;
-  rSaw.textContent = label ? "Recognised as "+label+" ("+Math.round(prob*100)+"%)" : "";
+  let saw = label ? "Recognised as "+label+" ("+Math.round(prob*100)+"%)" : "";
+  // Show the freshness reading too, so "Use soon" is explainable, not a black box.
+  if(tmModel && !modelHasSpoiling){
+    const pct=Math.round(lastFreshProb*100);
+    saw += (saw?" · ":"") + (state==="spoiling"
+      ? "borderline — model is torn ("+pct+"% spoiled)"
+      : pct+"% spoiled");
+  }
+  rSaw.textContent=saw;
   refreshAiBtn();
 }
 
