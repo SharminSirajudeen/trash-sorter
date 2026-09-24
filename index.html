@@ -9,39 +9,27 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
 <style>
   :root{
     box-sizing:border-box;
     --ink:#0d1f17; --surface:#12291e; --surface-2:#1a3629; --line:#274a39;
-    --text:#eaf2ec; --muted:#8fa89a;
-    --bin:#8fa89a; 
-    padding-top:env(safe-area-inset-top,0px);
-    padding-bottom:env(safe-area-inset-bottom,0px);
+    --text:#eaf2ec; --muted:#8fa89a; --bin:#8fa89a;
+    padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
   }
   *{box-sizing:inherit}
   html,body{margin:0;min-height:100%}
-  body{
-    background:var(--ink); color:var(--text);
-    font-family:Inter,system-ui,-apple-system,sans-serif; line-height:1.5;
-    -webkit-font-smoothing:antialiased;
-  }
-  .wrap{max-width:1040px; margin:0 auto; padding:18px 16px 34px}
-  header{display:flex; align-items:baseline; gap:11px; flex-wrap:wrap; margin-bottom:16px}
-  .logo{
-    font-family:"Space Grotesk",sans-serif; font-weight:700; font-size:24px;
-    letter-spacing:-0.02em; display:flex; align-items:center; gap:9px;
-  }
+  body{background:var(--ink);color:var(--text);font-family:Inter,system-ui,-apple-system,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px;margin:0 auto;padding:18px 16px 34px}
+  header{display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;margin-bottom:16px}
+  .logo{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:24px;letter-spacing:-0.02em;display:flex;align-items:center;gap:9px}
   .logo .dot{width:12px;height:12px;border-radius:3px;background:var(--bin);transition:background .4s ease}
-  .tag{color:var(--muted); font-size:14px}
+  .tag{color:var(--muted);font-size:14px}
+  .mode-badge{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--surface)}
+  .mode-badge b{color:var(--text);font-weight:600}
 
-  .stage{position:relative; display:grid; grid-template-columns:1.15fr 1fr; gap:16px; align-items:stretch}
-
-  /* camera */
-  .cam{
-    position:relative; background:#08130d; border:1px solid var(--line);
-    border-radius:18px; overflow:hidden; aspect-ratio:4/3;
-    display:flex; align-items:center; justify-content:center;
-  }
+  .stage{position:relative;display:grid;grid-template-columns:1.15fr 1fr;gap:16px;align-items:stretch}
+  .cam{position:relative;background:#08130d;border:1px solid var(--line);border-radius:18px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
   video{width:100%;height:100%;object-fit:cover}
   video.mirror{transform:scaleX(-1)}
   .scanline{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 2px var(--bin);border-radius:18px;opacity:0;transition:opacity .4s,box-shadow .4s}
@@ -56,7 +44,6 @@
   .flip{position:absolute;top:10px;right:10px;display:none;background:rgba(8,19,13,.8);border:1px solid var(--line);color:var(--text);border-radius:999px;width:40px;height:40px;font-size:17px;padding:0;align-items:center;justify-content:center}
   .cam.live .flip{display:inline-flex}
 
-  /* result */
   .result{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px;display:flex;flex-direction:column;transition:background .4s ease,border-color .4s ease}
   .result.filled{background:color-mix(in srgb,var(--bin) 20%, var(--surface));border-color:var(--bin)}
   .idle{margin:auto 0;color:var(--muted)}
@@ -69,7 +56,6 @@
   .bar{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:8px}
   .bar>span{display:block;height:100%;width:0;background:var(--bin);transition:width .35s ease,background .4s ease}
 
-  /* controls */
   .controls{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
   button{font-family:Inter,sans-serif;font-size:15px;font-weight:600;border-radius:11px;padding:12px 20px;cursor:pointer;border:1px solid transparent}
   .primary{background:var(--text);color:var(--ink);flex:0 0 auto}
@@ -83,29 +69,28 @@
   .legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:24px;padding-top:18px;border-top:1px solid var(--line)}
   .legend span{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
   .legend span i{width:11px;height:11px;border-radius:3px}
-  details{margin-top:20px;border:1px solid var(--line);border-radius:12px;padding:2px 16px;background:var(--surface)}
-  summary{cursor:pointer;padding:12px 0;font-weight:600;font-size:14.5px}
-  details p{color:var(--muted);font-size:14px;margin:0 0 14px}
-  footer{margin-top:24px;color:var(--muted);font-size:12.5px}
 
-  /* ---------- phone: camera fills, result becomes a bottom sheet over it ---------- */
+  details{margin-top:16px;border:1px solid var(--line);border-radius:12px;padding:2px 16px;background:var(--surface)}
+  summary{cursor:pointer;padding:12px 0;font-weight:600;font-size:14.5px}
+  details p{color:var(--muted);font-size:14px;margin:0 0 12px}
+  details ol{color:var(--muted);font-size:14px;margin:0 0 12px;padding-left:20px}
+  details li{margin-bottom:5px}
+  .model-row{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px}
+  .model-row input{flex:1;min-width:200px;background:var(--ink);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:11px 13px;font-family:Inter,sans-serif;font-size:14px}
+  .model-row input:focus{outline:none;border-color:var(--muted)}
+  footer{margin-top:22px;color:var(--muted);font-size:12.5px}
+
   @media(max-width:720px){
     .wrap{padding:14px 12px 28px}
     .tag{font-size:13px}
     .stage{display:block}
-    .cam{aspect-ratio:3/4; max-height:64dvh; border-radius:20px}
-    .result{
-      position:absolute; left:0; right:0; bottom:0; padding:14px 16px 16px;
-      border-radius:20px 20px 20px 20px; border:none;
-      background:linear-gradient(to top, rgba(8,19,13,.92) 60%, rgba(8,19,13,.55));
-      -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
-      margin:8px; width:auto; min-height:0;
-    }
-    .result.filled{background:linear-gradient(to top, color-mix(in srgb,var(--bin) 42%, rgba(8,19,13,.94)) 55%, rgba(8,19,13,.5))}
+    .cam{aspect-ratio:3/4;max-height:64dvh;border-radius:20px}
+    .result{position:absolute;left:0;right:0;bottom:0;padding:14px 16px 16px;border-radius:20px;border:none;background:linear-gradient(to top,rgba(8,19,13,.92) 60%,rgba(8,19,13,.55));-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);margin:8px;width:auto;min-height:0}
+    .result.filled{background:linear-gradient(to top,color-mix(in srgb,var(--bin) 42%, rgba(8,19,13,.94)) 55%,rgba(8,19,13,.5))}
     .idle{margin:0}
     .idle .big{font-size:16px;margin:0 0 2px}
     .idle p:last-child{display:none}
-    #verdict{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+    #verdict{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
     .r-emoji{font-size:34px;margin:0}
     .r-bin{font-size:22px}
     .r-action{width:100%;order:4;margin:2px 0 0;font-size:13.5px}
@@ -121,6 +106,7 @@
   <header>
     <div class="logo"><span class="dot" id="logoDot"></span>SortRight</div>
     <div class="tag">Point an item at the camera — it tells you which bin it belongs in.</div>
+    <div class="mode-badge" id="modeBadge">Model: <b>general</b></div>
   </header>
 
   <div class="stage">
@@ -160,9 +146,26 @@
   <div class="legend" id="legend"></div>
 
   <details>
+    <summary>Use your own trash-trained model (recommended)</summary>
+    <p>Train a free model on real waste photos in ~20 minutes, then paste its link here. The app will use it instead of the general model, so it's genuinely sorting <b>trash</b>, not guessing from object names.</p>
+    <ol>
+      <li>Go to <b>teachablemachine.withgoogle.com</b> → New Project → <b>Standard image model</b>.</li>
+      <li>Make one class per bin and <b>name them exactly</b>: <b>plastic, paper, metal, glass, organic, ewaste, trash</b>. (Skip any you don't need.)</li>
+      <li>Add 30–50 webcam photos to each class — different angles, lighting, backgrounds.</li>
+      <li>Click <b>Train Model</b>, then <b>Export → Upload (shareable link)</b> and copy the URL.</li>
+      <li>Paste it below and press Use my model.</li>
+    </ol>
+    <div class="model-row">
+      <input id="modelUrl" type="url" placeholder="https://teachablemachine.withgoogle.com/models/XXXX/">
+      <button class="primary" id="useModelBtn">Use my model</button>
+      <button class="ghost" id="resetModelBtn">Back to general</button>
+    </div>
+  </details>
+
+  <details>
     <summary>How it works (for the Q&amp;A)</summary>
-    <p>A neural network called MobileNet runs entirely inside this browser — nothing is sent to a server. It was trained on millions of photos to recognise everyday objects. When it names what the camera sees (say, "water bottle"), a small rule matches that object to its correct waste stream and colours the panel with that bin's colour. So there are two steps: <b>recognise the object</b>, then <b>map the object to a bin</b>.</p>
-    <p>Limits worth admitting up front: it can only sort things it has seen before, it can confuse look-alikes (a glass and a plastic bottle), and poor light lowers its confidence. Those are honest boundaries of any vision model, not bugs.</p>
+    <p>A convolutional neural network runs entirely inside this browser — nothing is sent to a server. In <b>general</b> mode it uses MobileNet, trained on millions of everyday-object photos, and a rule maps the object it names to the right bin. In <b>trash</b> mode it uses your own model, trained on waste photos, so each class it predicts <i>is</i> a bin — no guessing step.</p>
+    <p>Honest limits: a model only knows what it was trained on, look-alikes (a glass vs a plastic bottle) can fool it, and poor light lowers confidence. Training your own model on your real items is what fixes most of this.</p>
   </details>
 
   <footer>Runs offline once loaded • EDGE — Employability Development &amp; Growth through Education • Level Expo, 3–4 Dec 2026</footer>
@@ -178,6 +181,8 @@ const BINS = {
   plastic:  { name:"Plastic",            colour:"#2b7fff", emoji:"🧴", action:"Empty and rinse, then recycle with plastics." },
   landfill: { name:"General Waste",      colour:"#6b6357", emoji:"🗑️", action:"No recycling stream for this — general waste bin." },
 };
+
+/* General mode: MobileNet object name -> bin */
 const RULES = [
   ["ewaste",   ["cellular","telephone","cellphone","ipod","laptop","computer","mouse","keyboard","monitor","remote","joystick","printer","hard disc","hard disk","microphone","headphone","earphone","radio","television","modem","switch","hand-held computer","phone","dial","cassette","camera"]],
   ["organic",  ["banana","orange","apple","lemon","fig","pineapple","strawberry","broccoli","cucumber","mushroom","corn","pepper","fruit","vegetable","bagel","pretzel","pizza","burrito","egg","artichoke","cabbage","cauliflower","squash","zucchini","spaghetti","bread","meat","hay","acorn"]],
@@ -186,9 +191,26 @@ const RULES = [
   ["paper",    ["carton","envelope","paper towel","packet","book jacket","notebook","comic book","menu","box","toilet tissue","paper","binder","folder","napkin"]],
   ["plastic",  ["water bottle","pop bottle","soda bottle","plastic bag","bottle","bucket","tray","plate","cup","container","lotion","sunscreen","bottlecap","packet"]],
 ];
-function classify(label){
+function classifyGeneral(label){
   const l=label.toLowerCase();
   for(const [bin,keys] of RULES){ if(keys.some(k=>l.includes(k))) return bin; }
+  return "landfill";
+}
+
+/* Trash mode: your model's class name -> bin */
+const NAME2BIN = {
+  plastic:"plastic", plastics:"plastic", "plastic bottle":"plastic", bottle:"plastic",
+  paper:"paper", cardboard:"paper", card:"paper", carton:"paper",
+  metal:"metal", metals:"metal", can:"metal", cans:"metal", aluminium:"metal", aluminum:"metal", tin:"metal",
+  glass:"glass",
+  organic:"organic", food:"organic", "food waste":"organic", compost:"organic", biodegradable:"organic",
+  ewaste:"ewaste", "e-waste":"ewaste", electronic:"ewaste", electronics:"ewaste", battery:"ewaste",
+  trash:"landfill", landfill:"landfill", general:"landfill", "general waste":"landfill", other:"landfill", "non-recyclable":"landfill", nothing:"landfill",
+};
+function classifyTrash(cn){
+  const k=cn.trim().toLowerCase();
+  if(NAME2BIN[k]) return NAME2BIN[k];
+  for(const key in NAME2BIN){ if(k.includes(key)) return NAME2BIN[key]; }
   return "landfill";
 }
 
@@ -200,17 +222,27 @@ const statusEl=document.getElementById("status"), startBtn=document.getElementBy
 const stopBtn=document.getElementById("stopBtn"), flipBtn=document.getElementById("flipBtn");
 const idle=document.getElementById("idle"), verdict=document.getElementById("verdict");
 const result=document.getElementById("result"), root=document.documentElement;
+const modeBadge=document.getElementById("modeBadge");
+const modelUrlIn=document.getElementById("modelUrl");
+const useModelBtn=document.getElementById("useModelBtn"), resetModelBtn=document.getElementById("resetModelBtn");
 
-let model=null, stream=null, running=false, lastRun=0, facing="environment";
+let mobilenetModel=null, tmModel=null, stream=null, running=false, lastRun=0, facing="environment";
+let mode="general";                 // "general" | "trash"
+let shownBin=null, candBin=null, candCount=0;   // flicker smoothing
+
 function setStatus(m,e){statusEl.textContent=m;statusEl.classList.toggle("err",!!e);}
 function paint(c){root.style.setProperty("--bin",c);}
+function setBadge(){ modeBadge.innerHTML = mode==="trash" ? "Model: <b>your trash model</b>" : "Model: <b>general</b>"; }
 
+/* load general model on start; it's always the fallback */
 (async()=>{
   try{
     if(!window.mobilenet) throw new Error("blocked");
-    model=await mobilenet.load({version:2,alpha:1.0});
+    mobilenetModel=await mobilenet.load({version:2,alpha:1.0});
     setStatus("Model ready. Turn on the camera to start sorting.");
     startBtn.disabled=false;
+    const saved = safeGet("sortright_model");
+    if(saved){ modelUrlIn.value=saved; loadTrashModel(saved, true); }
   }catch(e){
     setStatus("Couldn't load the recognition model. Check the connection and reload — it caches after the first successful load.",true);
     startBtn.disabled=true;
@@ -218,16 +250,32 @@ function paint(c){root.style.setProperty("--bin",c);}
 })();
 startBtn.disabled=true;
 
+function safeGet(k){ try{return localStorage.getItem(k);}catch(e){return null;} }
+function safeSet(k,v){ try{localStorage.setItem(k,v);}catch(e){} }
+function safeDel(k){ try{localStorage.removeItem(k);}catch(e){} }
+
+async function loadTrashModel(url, quiet){
+  if(!window.tmImage){ setStatus("Custom-model support didn't load — check the connection and reload.",true); return; }
+  let base=url.trim(); if(!base.endsWith("/")) base+="/";
+  try{
+    if(!quiet) setStatus("Loading your trash model…");
+    const m=await tmImage.load(base+"model.json", base+"metadata.json");
+    tmModel=m; mode="trash"; setBadge(); safeSet("sortright_model", url.trim());
+    setStatus("Your trash model is active ("+m.getTotalClasses()+" classes). Turn on the camera to sort.");
+  }catch(e){
+    setStatus("Couldn't load that model. Check the link is a Teachable Machine image model and ends with the model ID.",true);
+  }
+}
+useModelBtn.addEventListener("click",()=>{ if(modelUrlIn.value.trim()) loadTrashModel(modelUrlIn.value); });
+resetModelBtn.addEventListener("click",()=>{ tmModel=null; mode="general"; setBadge(); safeDel("sortright_model"); setStatus("Back to the general model."); });
+
 async function openCamera(){
   if(stream) stream.getTracks().forEach(t=>t.stop());
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing}});
-  video.srcObject=stream;
-  await video.play();
-  // Mirror only a front/selfie camera; a rear camera must not be flipped.
+  video.srcObject=stream; await video.play();
   const real=(stream.getVideoTracks()[0].getSettings().facingMode)||facing;
   video.classList.toggle("mirror", real!=="environment");
 }
-
 async function start(){
   try{
     await openCamera();
@@ -250,30 +298,47 @@ async function flip(){
   try{ await openCamera(); }catch(e){ setStatus("Couldn't switch camera on this device.",true); }
 }
 
+async function predictFrame(){
+  if(mode==="trash" && tmModel){
+    const p=await tmModel.predict(video); p.sort((a,b)=>b.probability-a.probability);
+    return { label:p[0].className, prob:p[0].probability, bin:classifyTrash(p[0].className) };
+  }
+  const p=await mobilenetModel.classify(video,3);
+  return { label:p[0].className.split(",")[0], prob:p[0].probability, bin:classifyGeneral(p[0].className) };
+}
+
 async function loop(){
   if(!running) return;
   const now=performance.now();
   if(now-lastRun>600 && video.readyState>=2){
     lastRun=now;
-    try{ show((await model.classify(video,3))[0]); }catch(e){}
+    try{ show(await predictFrame()); }catch(e){}
   }
   requestAnimationFrame(loop);
 }
-function show(pred){
-  if(!pred) return;
-  const conf=pred.probability, label=pred.className.split(",")[0], bin=BINS[classify(pred.className)];
+
+/* only switch the displayed bin after it wins twice in a row -> no flicker */
+function show(r){
+  if(!r) return;
+  if(r.bin===shownBin){ candBin=null; candCount=0; }
+  else{
+    if(r.bin===candBin){ candCount++; } else { candBin=r.bin; candCount=1; }
+    if(candCount>=2){ shownBin=r.bin; candBin=null; candCount=0; }
+  }
+  const bin=BINS[shownBin||r.bin];
   paint(bin.colour); result.classList.add("filled");
   document.getElementById("logoDot").style.background=bin.colour;
   document.getElementById("rEmoji").textContent=bin.emoji;
   document.getElementById("rBin").textContent=bin.name;
   document.getElementById("rAction").textContent=bin.action;
-  document.getElementById("rBar").style.width=Math.round(conf*100)+"%";
-  document.getElementById("rSaw").textContent = conf<0.18 ? "not sure — move closer or add light" : label+" ("+Math.round(conf*100)+"%)";
+  document.getElementById("rBar").style.width=Math.round(r.prob*100)+"%";
+  document.getElementById("rSaw").textContent = r.prob<0.18 ? "not sure — move closer or add light" : r.label+" ("+Math.round(r.prob*100)+"%)";
 }
 
 startBtn.addEventListener("click",start);
 stopBtn.addEventListener("click",stop);
 flipBtn.addEventListener("click",flip);
+setBadge();
 </script>
 </body>
 </html>
