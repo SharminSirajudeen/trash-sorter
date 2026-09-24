@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SortRight — Smart Waste Sorter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<style>
+  :root{
+    box-sizing:border-box;
+    --ink:#0d1f17; --surface:#12291e; --surface-2:#1a3629; --line:#274a39;
+    --text:#eaf2ec; --muted:#8fa89a;
+    --bin:#8fa89a; 
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:inherit}
+  html,body{margin:0;min-height:100%}
+  body{
+    background:var(--ink); color:var(--text);
+    font-family:Inter,system-ui,-apple-system,sans-serif; line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1040px; margin:0 auto; padding:18px 16px 34px}
+  header{display:flex; align-items:baseline; gap:11px; flex-wrap:wrap; margin-bottom:16px}
+  .logo{
+    font-family:"Space Grotesk",sans-serif; font-weight:700; font-size:24px;
+    letter-spacing:-0.02em; display:flex; align-items:center; gap:9px;
+  }
+  .logo .dot{width:12px;height:12px;border-radius:3px;background:var(--bin);transition:background .4s ease}
+  .tag{color:var(--muted); font-size:14px}
+
+  .stage{position:relative; display:grid; grid-template-columns:1.15fr 1fr; gap:16px; align-items:stretch}
+
+  /* camera */
+  .cam{
+    position:relative; background:#08130d; border:1px solid var(--line);
+    border-radius:18px; overflow:hidden; aspect-ratio:4/3;
+    display:flex; align-items:center; justify-content:center;
+  }
+  video{width:100%;height:100%;object-fit:cover}
+  video.mirror{transform:scaleX(-1)}
+  .scanline{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 2px var(--bin);border-radius:18px;opacity:0;transition:opacity .4s,box-shadow .4s}
+  .cam.live .scanline{opacity:.9}
+  .cam-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px}
+  .cam-empty p{color:var(--muted);max-width:32ch;margin:0}
+  .cam.live .cam-empty{display:none}
+  .busy{position:absolute;top:12px;left:12px;background:rgba(8,19,13,.8);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12.5px;color:var(--muted);display:none;align-items:center;gap:7px}
+  .cam.live .busy{display:inline-flex}
+  .busy i{width:7px;height:7px;border-radius:50%;background:var(--bin);animation:pulse 1.1s infinite}
+  @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+  .flip{position:absolute;top:10px;right:10px;display:none;background:rgba(8,19,13,.8);border:1px solid var(--line);color:var(--text);border-radius:999px;width:40px;height:40px;font-size:17px;padding:0;align-items:center;justify-content:center}
+  .cam.live .flip{display:inline-flex}
+
+  /* result */
+  .result{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px;display:flex;flex-direction:column;transition:background .4s ease,border-color .4s ease}
+  .result.filled{background:color-mix(in srgb,var(--bin) 20%, var(--surface));border-color:var(--bin)}
+  .idle{margin:auto 0;color:var(--muted)}
+  .idle .big{font-family:"Space Grotesk",sans-serif;font-size:22px;color:var(--text);margin:0 0 6px;font-weight:600}
+  .r-emoji{font-size:52px;line-height:1;margin-bottom:6px}
+  .r-bin{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:30px;letter-spacing:-0.02em;color:var(--bin);margin:0;transition:color .4s ease}
+  .r-action{margin:8px 0 18px;color:var(--text);font-size:15.5px}
+  .r-saw{font-size:13.5px;color:var(--muted);margin-top:auto}
+  .r-saw b{color:var(--text);font-weight:600;text-transform:capitalize}
+  .bar{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:8px}
+  .bar>span{display:block;height:100%;width:0;background:var(--bin);transition:width .35s ease,background .4s ease}
+
+  /* controls */
+  .controls{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+  button{font-family:Inter,sans-serif;font-size:15px;font-weight:600;border-radius:11px;padding:12px 20px;cursor:pointer;border:1px solid transparent}
+  .primary{background:var(--text);color:var(--ink);flex:0 0 auto}
+  .primary:hover{background:#fff}
+  .primary:disabled{opacity:.5;cursor:default}
+  .ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  .ghost:hover{border-color:var(--muted)}
+  .status{margin-top:13px;font-size:13.5px;color:var(--muted);min-height:20px}
+  .status.err{color:#f0a89c}
+
+  .legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:24px;padding-top:18px;border-top:1px solid var(--line)}
+  .legend span{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
+  .legend span i{width:11px;height:11px;border-radius:3px}
+  details{margin-top:20px;border:1px solid var(--line);border-radius:12px;padding:2px 16px;background:var(--surface)}
+  summary{cursor:pointer;padding:12px 0;font-weight:600;font-size:14.5px}
+  details p{color:var(--muted);font-size:14px;margin:0 0 14px}
+  footer{margin-top:24px;color:var(--muted);font-size:12.5px}
+
+  /* ---------- phone: camera fills, result becomes a bottom sheet over it ---------- */
+  @media(max-width:720px){
+    .wrap{padding:14px 12px 28px}
+    .tag{font-size:13px}
+    .stage{display:block}
+    .cam{aspect-ratio:3/4; max-height:64dvh; border-radius:20px}
+    .result{
+      position:absolute; left:0; right:0; bottom:0; padding:14px 16px 16px;
+      border-radius:20px 20px 20px 20px; border:none;
+      background:linear-gradient(to top, rgba(8,19,13,.92) 60%, rgba(8,19,13,.55));
+      -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+      margin:8px; width:auto; min-height:0;
+    }
+    .result.filled{background:linear-gradient(to top, color-mix(in srgb,var(--bin) 42%, rgba(8,19,13,.94)) 55%, rgba(8,19,13,.5))}
+    .idle{margin:0}
+    .idle .big{font-size:16px;margin:0 0 2px}
+    .idle p:last-child{display:none}
+    #verdict{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+    .r-emoji{font-size:34px;margin:0}
+    .r-bin{font-size:22px}
+    .r-action{width:100%;order:4;margin:2px 0 0;font-size:13.5px}
+    .r-saw{width:100%;order:5;margin:6px 0 0}
+    .r-text{flex:1;min-width:0}
+    .controls{margin-top:14px}
+    .primary{flex:1}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo"><span class="dot" id="logoDot"></span>SortRight</div>
+    <div class="tag">Point an item at the camera — it tells you which bin it belongs in.</div>
+  </header>
+
+  <div class="stage">
+    <div class="cam" id="cam">
+      <video id="video" playsinline muted></video>
+      <div class="scanline"></div>
+      <div class="busy"><i></i> scanning</div>
+      <button class="flip" id="flipBtn" title="Switch camera" aria-label="Switch camera">⟲</button>
+      <div class="cam-empty">
+        <div style="font-size:44px">♻️</div>
+        <p>Turn on the camera, then hold up a bottle, can, wrapper or piece of fruit. Good light and a plain background work best.</p>
+      </div>
+    </div>
+
+    <div class="result" id="result">
+      <div class="idle" id="idle">
+        <p class="big">Ready when you are.</p>
+        <p style="margin:0">The bin and its colour appear here as soon as an item is recognised.</p>
+      </div>
+      <div id="verdict" style="display:none">
+        <div class="r-emoji" id="rEmoji">♻️</div>
+        <div class="r-text">
+          <p class="r-bin" id="rBin">—</p>
+          <p class="r-action" id="rAction"></p>
+        </div>
+        <div class="r-saw">Recognised as <b id="rSaw">—</b><div class="bar"><span id="rBar"></span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="startBtn">Turn on camera</button>
+    <button class="ghost" id="stopBtn" style="display:none">Stop</button>
+  </div>
+  <div class="status" id="status">Loading the recognition model…</div>
+
+  <div class="legend" id="legend"></div>
+
+  <details>
+    <summary>How it works (for the Q&amp;A)</summary>
+    <p>A neural network called MobileNet runs entirely inside this browser — nothing is sent to a server. It was trained on millions of photos to recognise everyday objects. When it names what the camera sees (say, "water bottle"), a small rule matches that object to its correct waste stream and colours the panel with that bin's colour. So there are two steps: <b>recognise the object</b>, then <b>map the object to a bin</b>.</p>
+    <p>Limits worth admitting up front: it can only sort things it has seen before, it can confuse look-alikes (a glass and a plastic bottle), and poor light lowers its confidence. Those are honest boundaries of any vision model, not bugs.</p>
+  </details>
+
+  <footer>Runs offline once loaded • EDGE — Employability Development &amp; Growth through Education • Level Expo, 3–4 Dec 2026</footer>
+</div>
+
+<script>
+const BINS = {
+  organic:  { name:"Organic / Compost", colour:"#6a9a3b", emoji:"🍎", action:"Food and garden waste — compost or organic bin." },
+  ewaste:   { name:"E-waste",            colour:"#e5533c", emoji:"🔌", action:"Never the regular bin — take it to an e-waste point." },
+  glass:    { name:"Glass",              colour:"#17a67a", emoji:"🍾", action:"Rinse and drop in the glass bin." },
+  metal:    { name:"Metal",              colour:"#8a97a0", emoji:"🥫", action:"Empty, rinse, and recycle with metals." },
+  paper:    { name:"Paper & Card",       colour:"#f2b705", emoji:"📦", action:"Flatten and recycle — keep it dry and clean." },
+  plastic:  { name:"Plastic",            colour:"#2b7fff", emoji:"🧴", action:"Empty and rinse, then recycle with plastics." },
+  landfill: { name:"General Waste",      colour:"#6b6357", emoji:"🗑️", action:"No recycling stream for this — general waste bin." },
+};
+const RULES = [
+  ["ewaste",   ["cellular","telephone","cellphone","ipod","laptop","computer","mouse","keyboard","monitor","remote","joystick","printer","hard disc","hard disk","microphone","headphone","earphone","radio","television","modem","switch","hand-held computer","phone","dial","cassette","camera"]],
+  ["organic",  ["banana","orange","apple","lemon","fig","pineapple","strawberry","broccoli","cucumber","mushroom","corn","pepper","fruit","vegetable","bagel","pretzel","pizza","burrito","egg","artichoke","cabbage","cauliflower","squash","zucchini","spaghetti","bread","meat","hay","acorn"]],
+  ["glass",    ["wine bottle","beer bottle","goblet","wineglass","glass"]],
+  ["metal",    ["tin can","beer can","soda can","canister","milk can","pop can","spatula","ladle","frying pan","pot","wok","kettle","tin"]],
+  ["paper",    ["carton","envelope","paper towel","packet","book jacket","notebook","comic book","menu","box","toilet tissue","paper","binder","folder","napkin"]],
+  ["plastic",  ["water bottle","pop bottle","soda bottle","plastic bag","bottle","bucket","tray","plate","cup","container","lotion","sunscreen","bottlecap","packet"]],
+];
+function classify(label){
+  const l=label.toLowerCase();
+  for(const [bin,keys] of RULES){ if(keys.some(k=>l.includes(k))) return bin; }
+  return "landfill";
+}
+
+const legend=document.getElementById("legend");
+Object.values(BINS).forEach(b=>{const s=document.createElement("span");s.innerHTML=`<i style="background:${b.colour}"></i>${b.name}`;legend.appendChild(s);});
+
+const video=document.getElementById("video"), cam=document.getElementById("cam");
+const statusEl=document.getElementById("status"), startBtn=document.getElementById("startBtn");
+const stopBtn=document.getElementById("stopBtn"), flipBtn=document.getElementById("flipBtn");
+const idle=document.getElementById("idle"), verdict=document.getElementById("verdict");
+const result=document.getElementById("result"), root=document.documentElement;
+
+let model=null, stream=null, running=false, lastRun=0, facing="environment";
+function setStatus(m,e){statusEl.textContent=m;statusEl.classList.toggle("err",!!e);}
+function paint(c){root.style.setProperty("--bin",c);}
+
+(async()=>{
+  try{
+    if(!window.mobilenet) throw new Error("blocked");
+    model=await mobilenet.load({version:2,alpha:1.0});
+    setStatus("Model ready. Turn on the camera to start sorting.");
+    startBtn.disabled=false;
+  }catch(e){
+    setStatus("Couldn't load the recognition model. Check the connection and reload — it caches after the first successful load.",true);
+    startBtn.disabled=true;
+  }
+})();
+startBtn.disabled=true;
+
+async function openCamera(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing}});
+  video.srcObject=stream;
+  await video.play();
+  // Mirror only a front/selfie camera; a rear camera must not be flipped.
+  const real=(stream.getVideoTracks()[0].getSettings().facingMode)||facing;
+  video.classList.toggle("mirror", real!=="environment");
+}
+
+async function start(){
+  try{
+    await openCamera();
+    cam.classList.add("live"); running=true;
+    startBtn.style.display="none"; stopBtn.style.display="inline-block";
+    idle.style.display="none"; verdict.style.display="";
+    setStatus("Sorting live. Hold an item steady in the frame.");
+    loop();
+  }catch(e){ setStatus("Camera access was blocked. Allow the camera in your browser, then try again.",true); }
+}
+function stop(){
+  running=false;
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  cam.classList.remove("live");
+  startBtn.style.display="inline-block"; stopBtn.style.display="none";
+  setStatus("Stopped. Turn the camera back on to keep sorting.");
+}
+async function flip(){
+  facing = facing==="environment" ? "user" : "environment";
+  try{ await openCamera(); }catch(e){ setStatus("Couldn't switch camera on this device.",true); }
+}
+
+async function loop(){
+  if(!running) return;
+  const now=performance.now();
+  if(now-lastRun>600 && video.readyState>=2){
+    lastRun=now;
+    try{ show((await model.classify(video,3))[0]); }catch(e){}
+  }
+  requestAnimationFrame(loop);
+}
+function show(pred){
+  if(!pred) return;
+  const conf=pred.probability, label=pred.className.split(",")[0], bin=BINS[classify(pred.className)];
+  paint(bin.colour); result.classList.add("filled");
+  document.getElementById("logoDot").style.background=bin.colour;
+  document.getElementById("rEmoji").textContent=bin.emoji;
+  document.getElementById("rBin").textContent=bin.name;
+  document.getElementById("rAction").textContent=bin.action;
+  document.getElementById("rBar").style.width=Math.round(conf*100)+"%";
+  document.getElementById("rSaw").textContent = conf<0.18 ? "not sure — move closer or add light" : label+" ("+Math.round(conf*100)+"%)";
+}
+
+startBtn.addEventListener("click",start);
+stopBtn.addEventListener("click",stop);
+flipBtn.addEventListener("click",flip);
+</script>
+</body>
+</html>
