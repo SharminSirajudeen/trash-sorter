@@ -3,12 +3,13 @@
   "tmVersion": "2.4.7",
   "packageVersion": "0.8.5",
   "packageName": "@teachablemachine/image",
-  "timeStamp": "2026-09-24T06:36:32.161642Z",
+  "timeStamp": "2026-09-24T06:51:30.072309Z",
   "userMetadata": {},
-  "modelName": "fresheye-baseline-9produce",
+  "modelName": "fresheye-9produce-guard",
   "labels": [
     "fresh",
-    "spoiled"
+    "spoiled",
+    "notproduce"
   ],
   "imageSize": 224
 }

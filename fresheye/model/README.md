@@ -20,8 +20,26 @@ Nine fruits **and vegetables**, each in fresh and rotten form:
 🍎 apple · 🍌 banana · 🍊 orange · 🥒 cucumber · 🍅 tomato · 🥔 potato ·
 🫑 capsicum · 🌿 okra · 🥬 bitter gourd
 
-Trained on 5,400 images — **300 from every one of the 18 folders**, so each item
-carries equal weight and no single fruit dominates.
+Plus a third class, **`notproduce`**, so the app refuses things that aren't fruit or
+vegetables instead of confidently calling a bottle "fresh". When the model is at
+least 50% sure an item isn't produce, FreshEye shows **"Not produce"**, gives no
+freshness verdict, and won't let you log it.
+
+Trained on 7,537 images: 2,700 fresh + 2,700 spoiled (300 from each of the 18
+produce folders, so no single item dominates) and 2,137 non-produce images from
+[TrashNet](https://github.com/garythung/trashnet) — bottles, cans, paper, glass and
+general packaging.
+
+**Accuracy:** 98.3% overall — fresh 97.9%, spoiled 97.6%, notproduce **99.7%**.
+A 75-image re-check through the actual Teachable Machine loader scored 75/75, but
+that sample is small; trust the 98.3%.
+
+### What the guard does *not* cover
+
+The non-produce class is **packaging and household objects**. It does **not**
+include hands, faces, clothing or empty rooms, so pointing the camera at your hand
+may still get a freshness verdict. Widening it needs non-produce images of those
+things. Say this plainly if asked — it's a data limitation, not a bug.
 
 ## Honest limits
 

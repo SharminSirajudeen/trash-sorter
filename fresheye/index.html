@@ -241,11 +241,13 @@ const VERDICT = {
   fresh:    { label:"Fresh",    colour:"#2fae66", band:"Good for a few days.",        rescued:true  },
   spoiling: { label:"Use soon", colour:"#e6a12e", band:"Use it in the next day or two.", rescued:true  },
   spoiled:  { label:"Spoiled",  colour:"#d3503a", band:"Past its best — compost it.",  rescued:false },
+  notproduce:{label:"Not produce", colour:"#8b98a5", band:"This isn't a fruit or vegetable.", rescued:false },
 };
 const GENERIC = {
   fresh:    { idea:"Enjoy it soon, or store it well to keep it fresh.", store:"Keep produce cool and dry (some fruit prefers the counter)." },
   spoiling: { idea:"Use it today — cook it, blend it, or freeze it.",   store:"Cooking or freezing buys you extra time." },
   spoiled:  { idea:"Compost it — don't risk eating produce that's gone off.", store:"Composting returns the nutrients to the soil." },
+  notproduce:{ idea:"Hold up a fruit or vegetable instead.", store:"FreshEye only judges produce — it won't guess at anything else." },
 };
 const TIPS = {
   banana:{fresh:{idea:"Slice over cereal, or freeze chunks for smoothies.",store:"Keep on the counter, away from other fruit."},spoiling:{idea:"Mash into banana bread or pancakes.",store:"Move to the fridge to slow it down."},spoiled:{idea:"Compost it — great for the garden.",store:"Blackened skins still compost well."}},
@@ -290,11 +292,23 @@ function normFreshness(cn){
    binary model still gives all three answers. A model that has its own spoiling
    class skips this and is used directly. */
 const SPOILING_LO=0.30, SPOILING_HI=0.70;
+const NOTPRODUCE_MIN=0.50;      // how sure the model must be before it refuses
 let modelHasSpoiling=false, lastFreshProb=0;
+function isNotProduce(cn){ return /notproduce|not.?produce|other|background|nothing|none/i.test(cn.trim()); }
 function freshnessFrom(preds){
-  if(modelHasSpoiling) return normFreshness(preds[0].className);   // trust a real 3-class model
-  let pSpoiled=0;
-  preds.forEach(p=>{ if(normFreshness(p.className)==="spoiled") pSpoiled+=p.probability; });
+  // A model with a "notproduce" class lets the app refuse non-produce outright
+  // instead of confidently calling a bottle fresh.
+  let pNot=0;
+  preds.forEach(p=>{ if(isNotProduce(p.className)) pNot+=p.probability; });
+  if(pNot>=NOTPRODUCE_MIN){ lastFreshProb=pNot; return "notproduce"; }
+
+  const food=preds.filter(p=>!isNotProduce(p.className));
+  if(modelHasSpoiling) return normFreshness(food[0].className);   // trust a real spoiling class
+  // Re-normalise across the produce classes only, so the non-produce share
+  // doesn't drag the fresh/spoiled reading toward the middle.
+  let pSpoiled=0, tot=0;
+  food.forEach(p=>{ tot+=p.probability; if(normFreshness(p.className)==="spoiled") pSpoiled+=p.probability; });
+  pSpoiled = tot>0 ? pSpoiled/tot : 0;
   lastFreshProb=pSpoiled;
   if(pSpoiled<SPOILING_LO) return "fresh";
   if(pSpoiled>SPOILING_HI) return "spoiled";
@@ -468,9 +482,10 @@ function render(label,prob){
   rIdea.textContent=t.idea; rStore.textContent=t.store;
   let saw = label ? "Recognised as "+label+" ("+Math.round(prob*100)+"%)" : "";
   // Show the freshness reading too, so "Use soon" is explainable, not a black box.
-  if(tmModel && !modelHasSpoiling){
+  if(tmModel){
     const pct=Math.round(lastFreshProb*100);
-    saw += (saw?" · ":"") + (state==="spoiling"
+    if(state==="notproduce") saw += (saw?" · ":"") + pct+"% sure this isn't produce";
+    else if(!modelHasSpoiling) saw += (saw?" · ":"") + (state==="spoiling"
       ? "borderline — model is torn ("+pct+"% spoiled)"
       : pct+"% spoiled");
   }
@@ -500,6 +515,7 @@ function renderImpact(){
 }
 logBtn.addEventListener("click",()=>{
   if(!shown.state){ setStatus("Pick a freshness (or let the model read one) before logging.",false); return; }
+  if(shown.state==="notproduce"){ setStatus("That isn't produce — nothing to log.",false); return; }
   const i=readImpact(); i.checked++; if(VERDICT[shown.state].rescued) i.rescued++;
   sSet(K.impact,JSON.stringify(i)); renderImpact();
   setStatus("Logged. "+i.checked+" checked, "+i.rescued+" rescued.");
