@@ -56,13 +56,12 @@ things. Say this plainly if asked — it's a data limitation, not a bug.
   class is detected automatically and used directly, skipping the band entirely.
   The thresholds are `SPOILING_LO` / `SPOILING_HI` in `index.html` if you want to
   widen or narrow the amber zone.
-- **Only those nine items.** No leafy greens, no berries, no bread. Anything outside
-  the list still gets forced into fresh-or-spoiled — a binary classifier has nowhere
-  else to put it — so it can be confidently wrong on an unseen item.
-- **Accuracy:** 97.4% on a held-out split (fresh 97.5%, spoiled 97.3%). A 60-image
-  re-check through the actual Teachable Machine loader in a browser scored 60/60,
-  but that sample is small — trust the 97.4%. Real-world accuracy on your own
-  produce, lighting and background will be lower.
+- **Only those nine items.** No leafy greens, no berries, no bread. An unseen fruit
+  or vegetable is still forced into fresh-or-spoiled, so it can be confidently wrong
+  there. (Clearly non-produce objects are caught by the `notproduce` class above.)
+- **Real-world accuracy will be lower** than the figures above. Those are measured on
+  held-out images from the same datasets; your own produce, lighting and backgrounds
+  are harder.
 - **Architecture:** MobileNetV2 feature extractor (frozen, ImageNet weights) + a small
   trained head — transfer learning, the same technique Teachable Machine uses.
   Exported in Teachable Machine format so the app loads it with no special code.
