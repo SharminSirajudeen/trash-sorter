@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FreshEye — Is your food still good?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<style>
+  :root{
+    box-sizing:border-box;
+    --bg:#fbf7ef; --card:#ffffff; --ink:#26312a; --muted:#6f7d73; --line:#e7e0d3;
+    --accent:#1f7a54;
+    --fresh:#2fae66; --soon:#e6a12e; --spoiled:#d3503a;
+    --verdict:#cbd5cd;               /* current verdict colour, animated */
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:inherit}
+  html,body{margin:0;min-height:100%}
+  body{background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1060px;margin:0 auto;padding:20px 16px 40px}
+  a{color:var(--accent)}
+
+  header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .logo{font-family:Fraunces,serif;font-weight:700;font-size:27px;letter-spacing:-0.01em;display:flex;align-items:center;gap:10px}
+  .logo .eye{width:26px;height:26px;border-radius:50%;border:3px solid var(--verdict);position:relative;transition:border-color .5s ease}
+  .logo .eye::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--verdict);transition:background .5s ease}
+  .tag{color:var(--muted);font-size:14px}
+  .badge{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 11px;background:var(--card)}
+  .badge b{color:var(--ink);font-weight:600}
+
+  .stage{position:relative;display:grid;grid-template-columns:1.1fr 1fr;gap:16px;align-items:stretch}
+  .cam{position:relative;background:#0d130f;border:1px solid var(--line);border-radius:20px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+  video{width:100%;height:100%;object-fit:cover}
+  video.mirror{transform:scaleX(-1)}
+  .scan{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 3px var(--verdict);border-radius:20px;opacity:0;transition:opacity .5s,box-shadow .5s}
+  .cam.live .scan{opacity:.85}
+  .cam-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:26px}
+  .cam-empty p{color:#c7d0c8;max-width:34ch;margin:0}
+  .cam.live .cam-empty{display:none}
+  .busy{position:absolute;top:12px;left:12px;background:rgba(13,19,15,.82);border:1px solid rgba(255,255,255,.15);border-radius:999px;padding:5px 12px;font-size:12.5px;color:#cdd6ce;display:none;align-items:center;gap:7px}
+  .cam.live .busy{display:inline-flex}
+  .busy i{width:7px;height:7px;border-radius:50%;background:var(--verdict);animation:pulse 1.1s infinite}
+  @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+  .flip{position:absolute;top:10px;right:10px;display:none;background:rgba(13,19,15,.82);border:1px solid rgba(255,255,255,.15);color:#fff;border-radius:999px;width:42px;height:42px;font-size:18px;padding:0;align-items:center;justify-content:center}
+  .cam.live .flip{display:inline-flex}
+
+  .result{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:22px;display:flex;flex-direction:column;transition:background .5s ease,border-color .5s ease}
+  .result.filled{background:color-mix(in srgb,var(--verdict) 20%, var(--card));border-color:var(--verdict)}
+  .idle{margin:auto 0;color:var(--muted)}
+  .idle .big{font-family:Fraunces,serif;font-size:23px;color:var(--ink);margin:0 0 6px;font-weight:600}
+  .r-produce{font-size:14px;color:var(--muted);text-transform:capitalize;margin:0 0 2px}
+  .r-verdict{font-family:Fraunces,serif;font-weight:700;font-size:40px;letter-spacing:-0.02em;color:color-mix(in srgb,var(--verdict) 78%, #000);margin:0;transition:color .5s ease;line-height:1.05}
+  .r-band{margin:6px 0 16px;font-size:15.5px;color:var(--ink)}
+  .card-tip{background:color-mix(in srgb,var(--verdict) 12%, var(--card));border:1px solid color-mix(in srgb,var(--verdict) 40%, var(--line));border-radius:14px;padding:13px 15px;margin-top:auto}
+  .card-tip .k{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 3px}
+  .card-tip .idea{font-weight:600;margin:0 0 6px;font-size:15px}
+  .card-tip .store{font-size:13.5px;color:var(--muted);margin:0}
+  .card-tip .ai{display:block;margin-top:9px}
+  .r-saw{font-size:12.5px;color:var(--muted);margin:12px 0 0}
+
+  /* manual freshness selector */
+  .manual{margin-top:16px}
+  .manual .lbl{font-size:13px;color:var(--muted);margin:0 0 8px}
+  .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .seg button{font-weight:600;font-size:14.5px;border-radius:12px;padding:14px 8px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;transition:border-color .2s,background .2s}
+  .seg button .em{display:block;font-size:20px;margin-bottom:3px}
+  .seg button[data-s="fresh"].on{border-color:var(--fresh);background:color-mix(in srgb,var(--fresh) 15%,var(--card))}
+  .seg button[data-s="spoiling"].on{border-color:var(--soon);background:color-mix(in srgb,var(--soon) 15%,var(--card))}
+  .seg button[data-s="spoiled"].on{border-color:var(--spoiled);background:color-mix(in srgb,var(--spoiled) 15%,var(--card))}
+  .manual.locked{opacity:.5;pointer-events:none}
+  .manual .note{font-size:12px;color:var(--muted);margin:8px 0 0;min-height:16px}
+
+  .controls{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+  button{font-family:Inter,sans-serif}
+  .btn{font-size:15px;font-weight:600;border-radius:12px;padding:12px 20px;cursor:pointer;border:1.5px solid transparent}
+  .primary{background:var(--accent);color:#fff}
+  .primary:hover{background:#186845}
+  .primary:disabled{opacity:.5;cursor:default}
+  .ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+  .ghost:hover{border-color:var(--muted)}
+  .status{margin-top:12px;font-size:13.5px;color:var(--muted);min-height:20px}
+  .status.err{color:#c0492f}
+
+  /* impact */
+  .impact{margin-top:24px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 18px 14px}
+  .impact h2{font-family:Fraunces,serif;font-size:18px;margin:0 0 3px}
+  .impact .sub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .tile{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .tile .n{font-family:Fraunces,serif;font-weight:700;font-size:24px;line-height:1}
+  .tile .l{font-size:12px;color:var(--muted);margin-top:5px}
+  .impact .foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .impact .est{font-size:12px;color:var(--muted);max-width:60ch}
+  .link-btn{background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:4px;text-decoration:underline}
+
+  details{margin-top:16px;border:1px solid var(--line);border-radius:14px;padding:2px 16px;background:var(--card)}
+  summary{cursor:pointer;padding:13px 0;font-weight:600;font-size:14.5px}
+  details p{color:var(--muted);font-size:14px;margin:0 0 12px}
+  details ol{color:var(--muted);font-size:14px;margin:0 0 12px;padding-left:20px}
+  details li{margin-bottom:5px}
+  .field{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px}
+  .field input{flex:1;min-width:210px;background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:11px 13px;font-family:Inter,sans-serif;font-size:14px}
+  .field input:focus{outline:none;border-color:var(--accent)}
+  .adv{border-top:1px dashed var(--line);margin-top:6px;padding-top:12px}
+
+  footer{margin-top:26px;color:var(--muted);font-size:12.5px}
+
+  :focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 55%, #fff);outline-offset:2px}
+
+  @media(max-width:760px){
+    .wrap{padding:14px 12px 30px}
+    .stage{display:block}
+    .cam{aspect-ratio:3/4;max-height:60dvh;border-radius:22px}
+    .result{margin-top:14px}
+    .r-verdict{font-size:34px}
+    .tiles{grid-template-columns:repeat(2,1fr)}
+  }
+  @media(prefers-reduced-motion:reduce){
+    *{transition:none !important;animation:none !important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo"><span class="eye" id="eye"></span>FreshEye</div>
+    <div class="tag">Point the camera at fruit or veg — it tells you if it's still good, and how to use it up.</div>
+    <div class="badge" id="badge">Freshness: <b>manual</b></div>
+  </header>
+
+  <div class="stage">
+    <div class="cam" id="cam">
+      <video id="video" playsinline muted></video>
+      <div class="scan"></div>
+      <div class="busy"><i></i> looking</div>
+      <button class="flip" id="flipBtn" title="Switch camera" aria-label="Switch camera">⟲</button>
+      <div class="cam-empty">
+        <div style="font-size:46px">🍎</div>
+        <p>Turn on the camera and hold up a piece of fruit or veg. Good light and a plain background help it recognise the item.</p>
+      </div>
+    </div>
+
+    <div class="result" id="result">
+      <div class="idle" id="idle">
+        <p class="big">Ready when you are.</p>
+        <p style="margin:0">Turn on the camera, or just tap a freshness below to try it out.</p>
+      </div>
+      <div id="verdict" style="display:none">
+        <p class="r-produce" id="rProduce">Produce</p>
+        <p class="r-verdict" id="rVerdict">—</p>
+        <p class="r-band" id="rBand"></p>
+        <div class="card-tip">
+          <p class="k">Use it up</p>
+          <p class="idea" id="rIdea">—</p>
+          <p class="store" id="rStore"></p>
+          <button class="link-btn ai" id="aiBtn" style="display:none">✨ Fresh idea (live)</button>
+        </div>
+        <p class="r-saw" id="rSaw"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="manual" id="manual">
+    <p class="lbl">Freshness — tap what you see (or train a model in Settings to automate this):</p>
+    <div class="seg" id="seg">
+      <button data-s="fresh"><span class="em">🟢</span>Fresh</button>
+      <button data-s="spoiling"><span class="em">🟠</span>Use soon</button>
+      <button data-s="spoiled"><span class="em">🔴</span>Spoiled</button>
+    </div>
+    <p class="note" id="manualNote"></p>
+  </div>
+
+  <div class="controls">
+    <button class="btn primary" id="startBtn">Turn on camera</button>
+    <button class="btn ghost" id="stopBtn" style="display:none">Stop</button>
+    <button class="btn ghost" id="logBtn">Log this item</button>
+  </div>
+  <div class="status" id="status">Loading the recognition model…</div>
+
+  <div class="impact">
+    <h2>Your impact</h2>
+    <p class="sub">A running estimate for your presentation. Rescued = items you logged as Fresh or Use soon.</p>
+    <div class="tiles">
+      <div class="tile"><div class="n" id="tChecked">0</div><div class="l">items checked</div></div>
+      <div class="tile"><div class="n" id="tRescued">0</div><div class="l">items rescued</div></div>
+      <div class="tile"><div class="n" id="tFood">0.0 kg</div><div class="l">food saved (est.)</div></div>
+      <div class="tile"><div class="n" id="tCo2">0.0 kg</div><div class="l">CO₂e avoided (est.)</div></div>
+    </div>
+    <div class="foot">
+      <p class="est">Estimate only: ~0.15 kg per item × ~2.5 kg CO₂e per kg of food (average food footprint — see report). Not exact.</p>
+      <button class="link-btn" id="resetImpact">Reset tally</button>
+    </div>
+  </div>
+
+  <details id="settings">
+    <summary>Settings &amp; training (optional)</summary>
+    <p><b>Automate freshness with your own model.</b> Train a Teachable Machine image model with classes named exactly <b>fresh</b>, <b>spoiling</b>, <b>spoiled</b>, export it as an uploaded shareable link, and paste it here. Until you do, the manual buttons work fine.</p>
+    <div class="field">
+      <input id="modelUrl" type="url" placeholder="https://teachablemachine.withgoogle.com/models/XXXX/">
+      <button class="btn primary" id="useModelBtn">Use model</button>
+      <button class="btn ghost" id="clearModelBtn">Manual</button>
+    </div>
+
+    <div class="adv">
+      <p><b>Live rescue ideas (advanced, off by default).</b> Optional. Paste an OpenAI-compatible API key to enable a “Fresh idea” button that writes a tip for the exact item. Everything works without this — the demo does not depend on it. Your key is stored only in this browser and is never sent anywhere except the endpoint you set.</p>
+      <div class="field">
+        <input id="apiKey" type="password" placeholder="API key (optional — leave blank for offline tips)" autocomplete="off">
+      </div>
+      <div class="field">
+        <input id="apiBase" type="url" placeholder="Endpoint (default https://api.openai.com/v1/chat/completions)">
+        <input id="apiModel" type="text" placeholder="Model (default gpt-4o-mini)">
+      </div>
+      <div class="field">
+        <button class="btn ghost" id="saveApi">Save key</button>
+        <button class="btn ghost" id="clearApi">Remove key</button>
+      </div>
+      <p class="note" id="apiNote"></p>
+    </div>
+  </details>
+
+  <details>
+    <summary>How it works (for the Q&amp;A)</summary>
+    <p>Three steps run on each camera frame, all on your device — nothing is uploaded. <b>Identify:</b> MobileNet, a neural network trained on millions of photos, names the produce (e.g. “banana”). <b>Judge freshness:</b> freshness can’t come from MobileNet — a banana is a banana whether ripe or rotten — so it comes either from your own Teachable Machine model (trained on fresh/spoiling/spoiled photos) or from the manual buttons. <b>Advise:</b> the item and its state are matched to a built-in rescue idea and storage tip.</p>
+    <p>The custom model uses <b>transfer learning</b>: it reuses MobileNet’s general understanding of images and only re-learns the fresh/spoiling/spoiled distinction, which is why ~30–50 photos per class is enough.</p>
+  </details>
+
+  <footer>Runs offline once loaded • EDGE — Employability Development &amp; Growth through Education • Level Expo, 3–4 Dec 2026</footer>
+</div>
+
+<script>
+"use strict";
+
+/* ---------------- baked knowledge (AI-authored, frozen in) ---------------- */
+const VERDICT = {
+  fresh:    { label:"Fresh",    colour:"#2fae66", band:"Good for a few days.",        rescued:true  },
+  spoiling: { label:"Use soon", colour:"#e6a12e", band:"Use it in the next day or two.", rescued:true  },
+  spoiled:  { label:"Spoiled",  colour:"#d3503a", band:"Past its best — compost it.",  rescued:false },
+};
+const GENERIC = {
+  fresh:    { idea:"Enjoy it soon, or store it well to keep it fresh.", store:"Keep produce cool and dry (some fruit prefers the counter)." },
+  spoiling: { idea:"Use it today — cook it, blend it, or freeze it.",   store:"Cooking or freezing buys you extra time." },
+  spoiled:  { idea:"Compost it — don't risk eating produce that's gone off.", store:"Composting returns the nutrients to the soil." },
+};
+const TIPS = {
+  banana:{fresh:{idea:"Slice over cereal, or freeze chunks for smoothies.",store:"Keep on the counter, away from other fruit."},spoiling:{idea:"Mash into banana bread or pancakes.",store:"Move to the fridge to slow it down."},spoiled:{idea:"Compost it — great for the garden.",store:"Blackened skins still compost well."}},
+  apple:{fresh:{idea:"Pack a whole one, or slice with peanut butter.",store:"Store in the fridge crisper."},spoiling:{idea:"Stew into apple sauce or bake a crumble.",store:"Cut away bruises and cook soon."},spoiled:{idea:"Compost it.",store:"Don't eat mouldy apples."}},
+  orange:{fresh:{idea:"Juice it fresh, or segment into a salad.",store:"A cool, dry spot or the fridge."},spoiling:{idea:"Zest it, then juice before it dries out.",store:"Use within a day for best flavour."},spoiled:{idea:"Compost it.",store:"Discard if soft or mouldy."}},
+  lemon:{fresh:{idea:"Zest and juice for dressings and drinks.",store:"The fridge keeps them for weeks."},spoiling:{idea:"Juice it and freeze in an ice-cube tray.",store:"Roll it firmly to get the last juice out."},spoiled:{idea:"Compost it.",store:"Toss if mouldy or dried hard."}},
+  tomato:{fresh:{idea:"Slice for salads or sandwiches.",store:"Keep at room temperature for flavour."},spoiling:{idea:"Cook into a quick pasta sauce.",store:"Roast soft tomatoes to save them."},spoiled:{idea:"Compost it.",store:"Discard if leaking or mouldy."}},
+  potato:{fresh:{idea:"Roast, mash or boil.",store:"Cool, dark, dry place — not the fridge."},spoiling:{idea:"Make soup or a hash before they sprout more.",store:"Cut off sprouts and any green bits."},spoiled:{idea:"Compost it.",store:"Very soft, green or smelly potatoes aren't safe."}},
+  onion:{fresh:{idea:"A base for almost any savoury dish.",store:"Cool, dry, airy spot."},spoiling:{idea:"Caramelise them, or add to soup.",store:"Use once they start to soften."},spoiled:{idea:"Compost it.",store:"Mushy or mouldy layers mean toss it."}},
+  carrot:{fresh:{idea:"Snack sticks, or roast with a little honey.",store:"Fridge, in a sealed bag."},spoiling:{idea:"Grate into soup, or make carrot cake.",store:"Revive limp carrots in cold water."},spoiled:{idea:"Compost it.",store:"Slimy carrots have gone."}},
+  cucumber:{fresh:{idea:"Slice into salads, or infuse water.",store:"Fridge, but not the coldest shelf."},spoiling:{idea:"Blend into a chilled soup, or quick-pickle it.",store:"Use quickly once it softens."},spoiled:{idea:"Compost it.",store:"Mushy or leaking means toss."}},
+  strawberry:{fresh:{idea:"Eat fresh, or add to yoghurt.",store:"Fridge, unwashed until you eat them."},spoiling:{idea:"Blend into a smoothie or quick jam.",store:"Freeze any extras right away."},spoiled:{idea:"Compost it.",store:"Remove one mouldy berry to save the rest."}},
+  broccoli:{fresh:{idea:"Steam, stir-fry or roast.",store:"Fridge crisper, loosely wrapped."},spoiling:{idea:"Blend into soup before it yellows.",store:"Trim any yellowing florets."},spoiled:{idea:"Compost it.",store:"Slimy or strong-smelling means toss."}},
+  avocado:{fresh:{idea:"Toast, salad, or guacamole.",store:"Ripen on the counter, then move to the fridge."},spoiling:{idea:"Mash into guac or a smoothie today.",store:"A squeeze of lemon slows browning."},spoiled:{idea:"Compost it.",store:"Brown-black stringy flesh has gone."}},
+  "bell pepper":{fresh:{idea:"Slice raw, or roast them.",store:"Fridge crisper."},spoiling:{idea:"Roast, or add to a stir-fry.",store:"Cut around any soft spots."},spoiled:{idea:"Compost it.",store:"Wrinkled and slimy means toss."}},
+  mushroom:{fresh:{idea:"Fry with garlic, or add to pasta.",store:"A paper bag in the fridge."},spoiling:{idea:"Cook thoroughly into a sauce today.",store:"Use as soon as they darken."},spoiled:{idea:"Compost it.",store:"Slimy mushrooms aren't safe."}},
+  grapes:{fresh:{idea:"Snack, or add to a cheese board.",store:"Fridge, unwashed."},spoiling:{idea:"Freeze for a cool snack, or juice them.",store:"Pull off any spoiled ones first."},spoiled:{idea:"Compost it.",store:"Wrinkled, leaking grapes should go."}},
+};
+/* MobileNet label -> produce key */
+const PRODUCE = [
+  ["banana",["banana"]],["apple",["granny smith","apple"]],["orange",["orange"]],
+  ["lemon",["lemon"]],["cucumber",["cucumber"]],["bell pepper",["bell pepper"]],
+  ["strawberry",["strawberry"]],["broccoli",["broccoli"]],
+  ["mushroom",["mushroom","agaric","bolete"]],["grapes",["grape"]],
+];
+function matchProduce(label){
+  const l=label.toLowerCase();
+  for(const [key,syns] of PRODUCE){ if(syns.some(s=>l.includes(s))) return key; }
+  return null;
+}
+function normFreshness(cn){
+  const k=cn.trim().toLowerCase();
+  if(k.includes("spoiled")||k.includes("rotten")||k.includes("bad")) return "spoiled";
+  if(k.includes("spoiling")||k.includes("use soon")||k.includes("soon")||k.includes("over")) return "spoiling";
+  if(k.includes("fresh")||k.includes("good")||k.includes("ripe")) return "fresh";
+  return "spoiling"; // safe middle if an unexpected class name appears
+}
+
+/* ---------------- storage helpers (never throw) ---------------- */
+const K={model:"fresheye_model",key:"fresheye_apikey",base:"fresheye_apibase",model_llm:"fresheye_apimodel",impact:"fresheye_impact"};
+function sGet(k){ try{return localStorage.getItem(k);}catch(e){return null;} }
+function sSet(k,v){ try{localStorage.setItem(k,v);}catch(e){} }
+function sDel(k){ try{localStorage.removeItem(k);}catch(e){} }
+
+/* ---------------- element refs ---------------- */
+const $=id=>document.getElementById(id);
+const video=$("video"),cam=$("cam"),root=document.documentElement;
+const statusEl=$("status"),startBtn=$("startBtn"),stopBtn=$("stopBtn"),flipBtn=$("flipBtn");
+const idle=$("idle"),verdictEl=$("verdict"),result=$("result"),badge=$("badge");
+const rProduce=$("rProduce"),rVerdict=$("rVerdict"),rBand=$("rBand"),rIdea=$("rIdea"),rStore=$("rStore"),rSaw=$("rSaw");
+const manual=$("manual"),seg=$("seg"),manualNote=$("manualNote"),logBtn=$("logBtn"),aiBtn=$("aiBtn");
+const modelUrlIn=$("modelUrl"),useModelBtn=$("useModelBtn"),clearModelBtn=$("clearModelBtn");
+const apiKeyIn=$("apiKey"),apiBaseIn=$("apiBase"),apiModelIn=$("apiModel"),saveApi=$("saveApi"),clearApi=$("clearApi"),apiNote=$("apiNote");
+
+/* ---------------- state ---------------- */
+let mobilenetModel=null,tmModel=null,stream=null,running=false,lastRun=0,facing="environment";
+let manualState=null;                 // 'fresh'|'spoiling'|'spoiled' when no model
+let shown={key:null,state:null};      // what's on screen now
+let candKey=null,candState=null,candCount=0;   // 2-frame smoothing
+let lastLabel="",lastProb=0;
+
+function setStatus(m,e){statusEl.textContent=m;statusEl.classList.toggle("err",!!e);}
+function setBadge(){badge.innerHTML="Freshness: <b>"+(tmModel?"your model":"manual")+"</b>";}
+
+/* ---------------- model loading ---------------- */
+(async()=>{
+  try{
+    if(!window.mobilenet) throw new Error("blocked");
+    mobilenetModel=await mobilenet.load({version:2,alpha:1.0});
+    setStatus("Ready. Turn on the camera, or tap a freshness to try it.");
+    startBtn.disabled=false;
+    const savedModel=sGet(K.model); if(savedModel){modelUrlIn.value=savedModel;loadModel(savedModel,true);}
+  }catch(e){
+    setStatus("Couldn't load the recognition model — check the connection and reload. You can still use the manual freshness buttons.",true);
+    startBtn.disabled=true;
+  }
+})();
+startBtn.disabled=true;
+
+async function loadModel(url,quiet){
+  if(!window.tmImage){setStatus("Custom-model support didn't load — check the connection and reload.",true);return;}
+  let base=url.trim(); if(!base.endsWith("/")) base+="/";
+  try{
+    if(!quiet) setStatus("Loading your freshness model…");
+    const m=await tmImage.load(base+"model.json",base+"metadata.json");
+    tmModel=m; sSet(K.model,url.trim()); setBadge(); lockManual(true);
+    setStatus("Your freshness model is active ("+m.getTotalClasses()+" classes). Turn on the camera to use it.");
+  }catch(e){
+    setStatus("Couldn't load that model. Check it's a Teachable Machine image model link ending in the model ID.",true);
+  }
+}
+useModelBtn.addEventListener("click",()=>{ if(modelUrlIn.value.trim()) loadModel(modelUrlIn.value); });
+clearModelBtn.addEventListener("click",()=>{ tmModel=null; sDel(K.model); setBadge(); lockManual(false); setStatus("Back to manual freshness."); });
+
+function lockManual(locked){ manual.classList.toggle("locked",locked); manualNote.textContent=locked?"Freshness is coming from your model. Tap Manual in Settings to switch back.":""; }
+
+/* ---------------- camera ---------------- */
+async function openCamera(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing}});
+  video.srcObject=stream; await video.play();
+  const real=(stream.getVideoTracks()[0].getSettings().facingMode)||facing;
+  video.classList.toggle("mirror", real!=="environment"); // mirror only a front camera
+}
+async function start(){
+  try{
+    await openCamera();
+    cam.classList.add("live"); running=true;
+    startBtn.style.display="none"; stopBtn.style.display="inline-block";
+    idle.style.display="none"; verdictEl.style.display="";
+    setStatus(tmModel?"Looking live. Hold an item steady in the frame.":"Looking live. Tap a freshness while the camera identifies the item.");
+    loop();
+  }catch(e){ setStatus("Camera access was blocked. Allow the camera in your browser, then try again.",true); }
+}
+function stop(){
+  running=false;
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  cam.classList.remove("live");
+  startBtn.style.display="inline-block"; stopBtn.style.display="none";
+  setStatus("Stopped. Turn the camera back on to keep checking.");
+}
+async function flip(){
+  facing = facing==="environment" ? "user" : "environment";
+  try{ await openCamera(); }catch(e){ setStatus("Couldn't switch camera on this device.",true); }
+}
+
+/* ---------------- recognition loop ---------------- */
+async function loop(){
+  if(!running) return;
+  const now=performance.now();
+  if(now-lastRun>600 && video.readyState>=2){
+    lastRun=now;
+    try{
+      let key=shown.key,label=lastLabel,prob=lastProb;
+      if(mobilenetModel){
+        const p=await mobilenetModel.classify(video,3);
+        label=p[0].className.split(",")[0]; prob=p[0].probability; key=matchProduce(p[0].className);
+        lastLabel=label; lastProb=prob;
+      }
+      let state=manualState;
+      if(tmModel){ const fp=await tmModel.predict(video); fp.sort((a,b)=>b.probability-a.probability); state=normFreshness(fp[0].className); }
+      commit(key,state,label,prob);
+    }catch(e){}
+  }
+  requestAnimationFrame(loop);
+}
+
+/* smoothing: a model/produce reading must hold two frames before it shows */
+function commit(key,state,label,prob){
+  if(state==null){ // nothing to judge yet (manual mode, nothing tapped)
+    if(key!==shown.key){ shown.key=key; render(label,prob); }
+    return;
+  }
+  if(key===shown.key && state===shown.state){ candKey=candState=null; candCount=0; render(label,prob); return; }
+  if(key===candKey && state===candState){ candCount++; } else { candKey=key; candState=state; candCount=1; }
+  if(candCount>=2){ shown.key=key; shown.state=state; candKey=candState=null; candCount=0; }
+  render(label,prob);
+}
+
+function produceName(key,label){
+  if(key) return key;
+  if(label) return label;
+  return "Produce";
+}
+function render(label,prob){
+  const state=shown.state;
+  if(!state){ // no verdict yet — show produce, neutral panel
+    root.style.setProperty("--verdict","#cbd5cd"); result.classList.remove("filled");
+    rProduce.textContent=produceName(shown.key,label);
+    rVerdict.textContent="Tap a freshness"; rBand.textContent="Use the buttons below, or train a model.";
+    rIdea.textContent="—"; rStore.textContent="";
+    rSaw.textContent = label ? "Recognised as "+label+" ("+Math.round(prob*100)+"%)" : "";
+    return;
+  }
+  const v=VERDICT[state], t=(shown.key&&TIPS[shown.key]&&TIPS[shown.key][state])||GENERIC[state];
+  root.style.setProperty("--verdict",v.colour); result.classList.add("filled");
+  rProduce.textContent=produceName(shown.key,label);
+  rVerdict.textContent=v.label; rBand.textContent=v.band;
+  rIdea.textContent=t.idea; rStore.textContent=t.store;
+  rSaw.textContent = label ? "Recognised as "+label+" ("+Math.round(prob*100)+"%)" : "";
+  refreshAiBtn();
+}
+
+/* ---------------- manual selector ---------------- */
+seg.addEventListener("click",e=>{
+  const b=e.target.closest("button[data-s]"); if(!b||tmModel) return;
+  manualState=b.dataset.s;
+  [...seg.children].forEach(c=>c.classList.toggle("on",c===b));
+  shown.state=manualState; candKey=candState=null; candCount=0;
+  if(idle.style.display!=="none"){ idle.style.display="none"; verdictEl.style.display=""; }
+  render(lastLabel,lastProb);
+});
+
+/* ---------------- impact tally ---------------- */
+const KG_PER_ITEM=0.15, CO2E_PER_KG=2.5;   // documented averages (see report.md)
+function readImpact(){ try{ return JSON.parse(sGet(K.impact))||{checked:0,rescued:0}; }catch(e){ return {checked:0,rescued:0}; } }
+function renderImpact(){
+  const i=readImpact();
+  $("tChecked").textContent=i.checked;
+  $("tRescued").textContent=i.rescued;
+  $("tFood").textContent=(i.rescued*KG_PER_ITEM).toFixed(1)+" kg";
+  $("tCo2").textContent=(i.rescued*KG_PER_ITEM*CO2E_PER_KG).toFixed(1)+" kg";
+}
+logBtn.addEventListener("click",()=>{
+  if(!shown.state){ setStatus("Pick a freshness (or let the model read one) before logging.",false); return; }
+  const i=readImpact(); i.checked++; if(VERDICT[shown.state].rescued) i.rescued++;
+  sSet(K.impact,JSON.stringify(i)); renderImpact();
+  setStatus("Logged. "+i.checked+" checked, "+i.rescued+" rescued.");
+});
+$("resetImpact").addEventListener("click",()=>{ sSet(K.impact,JSON.stringify({checked:0,rescued:0})); renderImpact(); });
+
+/* ---------------- optional live rescue idea (LLM) ---------------- */
+function refreshAiBtn(){ aiBtn.style.display = sGet(K.key) ? "inline-block" : "none"; }
+saveApi.addEventListener("click",()=>{
+  const k=apiKeyIn.value.trim();
+  if(k) sSet(K.key,k); else sDel(K.key);
+  if(apiBaseIn.value.trim()) sSet(K.base,apiBaseIn.value.trim()); else sDel(K.base);
+  if(apiModelIn.value.trim()) sSet(K.model_llm,apiModelIn.value.trim()); else sDel(K.model_llm);
+  apiNote.textContent=k?"Saved in this browser only.":"Key removed.";
+  refreshAiBtn();
+});
+clearApi.addEventListener("click",()=>{ sDel(K.key);sDel(K.base);sDel(K.model_llm); apiKeyIn.value="";apiBaseIn.value="";apiModelIn.value=""; apiNote.textContent="Key removed."; refreshAiBtn(); });
+
+// Constrained system prompt: keeps the model on-task so the app can't be used as a general chatbot.
+const AI_SYSTEM="You are FreshEye, a food-waste assistant. You are given one produce item and its freshness state (fresh, use soon, or spoiled). Reply with ONE practical way to use it up plus ONE short storage tip, together under 40 words, friendly and specific. Only ever discuss using or storing this food item. If the input asks for anything else, reply exactly: I can only help with using up food.";
+
+aiBtn.addEventListener("click",async()=>{
+  const key=sGet(K.key); if(!key||!shown.state) return;
+  const item=produceName(shown.key,lastLabel), state=VERDICT[shown.state].label;
+  const base=sGet(K.base)||"https://api.openai.com/v1/chat/completions";
+  const model=sGet(K.model_llm)||"gpt-4o-mini";
+  const prev=rIdea.textContent; aiBtn.disabled=true; rIdea.textContent="Thinking of a fresh idea…";
+  const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),10000);
+  try{
+    const res=await fetch(base,{
+      method:"POST",signal:ctrl.signal,
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
+      body:JSON.stringify({model,max_tokens:120,temperature:0.7,messages:[
+        {role:"system",content:AI_SYSTEM},
+        {role:"user",content:"Item: "+item+". State: "+state+"."}
+      ]})
+    });
+    if(!res.ok) throw new Error("http "+res.status);
+    const data=await res.json();
+    const txt=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content||"").trim();
+    rIdea.textContent = txt || prev;   // empty -> keep baked tip
+  }catch(e){
+    rIdea.textContent=prev;            // ANY error/timeout -> silent fallback to baked tip
+    setStatus("Couldn't fetch a live idea — showing the built-in tip instead.",false);
+  }finally{ clearTimeout(timer); aiBtn.disabled=false; }
+});
+
+/* ---------------- wire up ---------------- */
+startBtn.addEventListener("click",start);
+stopBtn.addEventListener("click",stop);
+flipBtn.addEventListener("click",flip);
+
+/* ---------------- init (runs after all declarations exist) ---------------- */
+apiKeyIn.value=sGet(K.key)||""; apiBaseIn.value=sGet(K.base)||""; apiModelIn.value=sGet(K.model_llm)||"";
+refreshAiBtn(); setBadge(); renderImpact();
+</script>
+</body>
+</html>
