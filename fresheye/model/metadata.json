@@ -1,0 +1,14 @@
+{
+  "tfjsVersion": "2.19.0",
+  "tmVersion": "2.4.7",
+  "packageVersion": "0.8.5",
+  "packageName": "@teachablemachine/image",
+  "timeStamp": "2026-09-24T06:17:15.942553Z",
+  "userMetadata": {},
+  "modelName": "fresheye-baseline",
+  "labels": [
+    "fresh",
+    "spoiled"
+  ],
+  "imageSize": 224
+}
